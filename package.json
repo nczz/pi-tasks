@@ -1,0 +1,41 @@
+{
+	"name": "pi-tasks",
+	"version": "0.1.0",
+	"description": "Pi-native task and progress contracts for agents and users",
+	"type": "module",
+	"main": "index.ts",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"files": [
+		"index.ts",
+		"src/",
+		"docs/",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-extension",
+		"ai-agent",
+		"coding-agent",
+		"task-management",
+		"todo",
+		"progress-tracking",
+		"agent-workflow",
+		"developer-tools"
+	],
+	"scripts": {
+		"check": "biome check --write --error-on-warnings .",
+		"test": "vitest --run test/unit/"
+	},
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"license": "MIT"
+}
+
