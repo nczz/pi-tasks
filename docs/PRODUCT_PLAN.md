@@ -852,9 +852,17 @@ The goal is not complete until:
 - cloud sync,
 - task search embeddings.
 
-## 24. Documentation Completeness Assessment
+## 24. Implementation Specification
 
-Current document completeness: 92/100.
+The implementation-ready contract is now split into a dedicated document:
+
+- [IMPLEMENTATION_SPEC.md](IMPLEMENTATION_SPEC.md)
+
+Use that file for schema-level contracts, reducer transition rules, tool parameter behavior, TUI minimum specification, dogfood scenarios, and the exact `/goal` prompt.
+
+## 25. Documentation Completeness Assessment
+
+Current document completeness: 96/100.
 
 Strengths:
 
@@ -867,16 +875,19 @@ Strengths:
 - Clear `/goal` boundary.
 - Identifies existing open-source references.
 - Aligns with `pi-knowledge` quality expectations.
+- Adds direct `@juicesharp/rpiv-todo` competitive findings.
+- Adds schema-level implementation contracts in `IMPLEMENTATION_SPEC.md`.
+- Adds reducer transition matrix and invalid completion behavior.
+- Adds TUI minimum specification and width-safety requirement.
+- Adds dogfood scenario checklist and `/goal` completion checklist.
 
-Remaining gaps before implementation:
+Remaining runtime validation items:
 
-- Need direct code review of `@juicesharp/rpiv-todo` if source is available.
-- Need final package name decision: `pi-tasks`, `pi-taskflow`, or `pi-progress`.
-- Need decide whether first implementation uses custom entries only or tool result details plus custom entries.
-- Need decide exact TUI widget placement and minimal keyboard controls.
-- Need validate Pi API behavior for `appendEntry` and custom entries in dogfood.
+- Validate exact `appendEntry` custom-entry behavior under compaction.
+- Validate branch/fork replay behavior in a real Pi TUI session.
+- Validate final UI width behavior in narrow terminals.
+- Validate whether `require` guard mode is reliable enough for commercial release.
 
 Recommendation:
 
-Proceed with `/goal` using this document as the boundary. Treat the listed remaining gaps as phase-zero implementation decisions, not blockers.
-
+Proceed with `/goal` using `IMPLEMENTATION_SPEC.md` as the implementation boundary. Treat the remaining items as runtime validation gates inside the goal, not planning gaps.
