@@ -168,6 +168,8 @@ export function registerTaskTools(
 		promptGuidelines: [
 			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
 			"Prefer plan_steps with expectedOutput, criterionIds, evidenceRequired, and allowedActions for commercial-quality work.",
+			"When creating a new task, omit plan_steps.criterionIds unless you already know the generated criterion IDs; omitted criterionIds link the step to all task criteria.",
+			"Generated criterion IDs use the final task ID, such as T1-AC1. Do not guess IDs from criterion text or array indexes.",
 			"Mark a plan step atomic only when its granularityCheck proves it has one action, one observable output, one verification method, and no hidden subtasks.",
 			"Acceptance criteria must be concrete enough to verify with evidence before completion.",
 			"Activate only one task unless the user explicitly asks for parallel work.",
@@ -186,7 +188,14 @@ export function registerTaskTools(
 					Type.Object({
 						text: Type.String(),
 						expectedOutput: Type.String(),
-						criterionIds: Type.Optional(Type.Array(Type.String())),
+						criterionIds: Type.Optional(
+							Type.Array(
+								Type.String({
+									description:
+										"Known generated criterion IDs, for example T1-AC1. Omit during new task creation to auto-link all criteria.",
+								}),
+							),
+						),
 						evidenceRequired: Type.Optional(Type.Boolean()),
 						allowedActions: Type.Optional(Type.Array(Type.String())),
 						decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
@@ -201,7 +210,7 @@ export function registerTaskTools(
 			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-			const taskId = idGenerator.next("T");
+			const taskId = nextTaskId(store.getState());
 			const event = baseEvent("task.created", taskId, ctx, {
 				title: params.title,
 				objective: params.objective,
@@ -357,7 +366,8 @@ export function registerTaskTools(
 			"Recursively break down a non-atomic pi-tasks step into atomic child steps",
 		promptGuidelines: [
 			"Use task_decompose when task_focus or task_granularity_check says the current step needs breakdown.",
-			"Each child step must include expectedOutput, criterionIds, evidenceRequired, allowedActions, and granularityCheck.",
+			"Each child step must include expectedOutput, evidenceRequired, allowedActions, and granularityCheck.",
+			"Omit child step criterionIds unless you are carrying forward known generated IDs from task_focus or task_resume.",
 			"Only mark a child atomic when it truly has one action, one output, one verification method, and no hidden subtasks.",
 			"Do not use task_decompose for execution evidence; record execution evidence with task_evidence.",
 		],
@@ -369,7 +379,14 @@ export function registerTaskTools(
 				Type.Object({
 					text: Type.String(),
 					expectedOutput: Type.String(),
-					criterionIds: Type.Optional(Type.Array(Type.String())),
+					criterionIds: Type.Optional(
+						Type.Array(
+							Type.String({
+								description:
+									"Known generated criterion IDs from task_focus/task_resume. Omit to inherit all task criteria.",
+							}),
+						),
+					),
 					evidenceRequired: Type.Optional(Type.Boolean()),
 					allowedActions: Type.Optional(Type.Array(Type.String())),
 					decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
@@ -716,6 +733,14 @@ function appendAndReport(
 function selectTask(state: TaskState, taskId?: string): Task | undefined {
 	if (taskId) return state.tasks[taskId];
 	return state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
+}
+
+function nextTaskId(state: TaskState): string {
+	const maxId = Object.keys(state.tasks).reduce((max, id) => {
+		const match = /^T(\d+)$/.exec(id);
+		return match ? Math.max(max, Number(match[1])) : max;
+	}, 0);
+	return `T${maxId + 1}`;
 }
 
 function selectStep(

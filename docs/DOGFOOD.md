@@ -33,6 +33,10 @@ Environment:
 - English evidence gate session ID: `weakmodel-evidence-gate-en2`
 - Chinese plan gate session ID: `weakmodel-plan-gate-zh`
 - Installed package quality gate session ID: `weakmodel-installed-plan-gate`
+- Readiness regression session directory: `/private/tmp/pi-tasks-id-regression/sessions`
+- Readiness regression session ID: `id-regression-1`
+- Installed ID regression session directory: `/private/tmp/pi-tasks-installed-smoke-3/sessions`
+- Installed ID regression session ID: `installed-id-regression-1`
 
 ## Passed Scenarios
 
@@ -74,6 +78,11 @@ Environment:
 - Confirmed low-quality test evidence without `quality.observedOutput` is rejected and returns `pi-tasks resume` recovery guidance.
 - Confirmed valid evidence with `quality.source`, `quality.reproducible`, `quality.verifier`, `quality.artifactRefs`, and `quality.observedOutput` can be recorded and linked to a step.
 - Confirmed installed package runtime rejects a bad atomic plan through the same quality gate and returns `pi-tasks resume` recovery guidance.
+- Confirmed rejected `task_plan` calls do not consume task IDs; after a rejected invalid plan, the first successful task was still created as `T1`.
+- Confirmed weak-model guidance works better when `plan_steps.criterionIds` is omitted during new task creation; generated IDs such as `T1-AC1` are auto-linked after creation.
+- Confirmed live PTY `/tasks` renders the active task, step contract, criterion, and verification gaps.
+- Confirmed live PTY `/quit` exits cleanly with Pi's resume instruction.
+- Confirmed installed package runtime preserves rejected-plan ID behavior through `./node_modules/pi-tasks/dist/index.js`.
 
 ## Commands
 
@@ -216,13 +225,48 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-dogfood/sessions
   -p "中文品質閘門測試。請呼叫 task_plan 建立一個故意很差的 atomic step，回報 exact error，並確認 recovery guidance 是否包含 pi-tasks resume。"
 ```
 
+Rejected-plan ID regression and live PTY command:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_list \
+  --session-id id-regression-1 \
+  --name id-regression-1 \
+  -p "First call task_plan with a deliberately invalid vague atomic step missing allowedActions so it is rejected. Then call task_plan with a valid task named ID Regression, one acceptance criterion, and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. Finally call task_list and report the created task id."
+```
+
+Then open the same session in a PTY and run `/tasks` and `/quit`:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --session-id id-regression-1
+```
+
+Installed package ID regression:
+
+```sh
+rm -rf /private/tmp/pi-tasks-installed-smoke-3
+mkdir -p /private/tmp/pi-tasks-installed-smoke-3/consumer /private/tmp/pi-tasks-installed-smoke-3/sessions
+cd /private/tmp/pi-tasks-installed-smoke-3/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-release-check-3/tarball/pi-tasks-0.1.0.tgz
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-installed-smoke-3/sessions \
+  pi --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_plan,task_list \
+  --session-id installed-id-regression-1 \
+  --name installed-id-regression-1 \
+  -p "First call task_plan with a deliberately invalid vague atomic step missing allowedActions so it is rejected. Then create a valid task named Installed ID Regression with one criterion and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. Call task_list and report the created task id."
+```
+
 ## Package Gates
 
 Also passed on 2026-06-19:
 
 - `npm run typecheck`
 - `npm run check`
-- `npm test`
+- `npm test` (42 unit tests)
 - `npm run build`
 - `node --experimental-strip-types -e "import('./index.ts')"`
 - `npm pack --dry-run` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`

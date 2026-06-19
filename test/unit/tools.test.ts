@@ -75,6 +75,71 @@ function requireTool(
 }
 
 describe("registered task tools", () => {
+	it("does not consume task IDs for rejected task_plan calls", async () => {
+		const { tools, ctx, store } = createHarness();
+		const plan = requireTool(tools, "task_plan");
+
+		const rejected = await execute(
+			plan,
+			{
+				title: "Bad plan",
+				objective: "Exercise rejection",
+				acceptance_criteria: ["Bad plan is rejected"],
+				plan_steps: [
+					{
+						text: "Do the thing",
+						expectedOutput: "Something happens",
+						evidenceRequired: true,
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Too vague on purpose",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+				],
+				activate: true,
+			},
+			ctx,
+		);
+		expect(rejected.content[0]?.text).toContain("Error:");
+		expect(Object.keys(store.getState().tasks)).toEqual([]);
+
+		const created = await execute(
+			plan,
+			{
+				title: "Good plan",
+				objective: "Create a valid task after a rejected plan",
+				acceptance_criteria: ["Valid plan is recorded"],
+				plan_steps: [
+					{
+						text: "Record valid plan evidence",
+						expectedOutput: "Valid plan evidence is ready",
+						evidenceRequired: true,
+						allowedActions: ["task_evidence"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single evidence recording action",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+				],
+				activate: true,
+			},
+			ctx,
+		);
+
+		expect(created.content[0]?.text).toContain("Created task T1");
+		expect(store.getState().tasks.T1?.id).toBe("T1");
+	});
+
 	it("create, update, evidence, complete, and replay through custom entries", async () => {
 		const { tools, entries, ctx, store, ui } = createHarness();
 		const plan = requireTool(tools, "task_plan");
@@ -187,7 +252,7 @@ describe("registered task tools", () => {
 		);
 		await execute(
 			complete,
-			{ task_id: "T1", summary: "done", evidence_ids: ["E2"] },
+			{ task_id: "T1", summary: "done", evidence_ids: ["E1"] },
 			ctx,
 		);
 

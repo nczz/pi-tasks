@@ -27,3 +27,5 @@
 - Detailed task output now includes decisions and resolved blocker audit history.
 - Published package metadata now points to compiled `dist/index.js` and generated declarations instead of raw TypeScript under `node_modules`.
 - Added `package-lock.json` and pinned the dependency audit surface with an `esbuild` override.
+- Rejected `task_plan` calls no longer consume task IDs, so a failed plan quality attempt followed by a valid task still creates the first task as `T1`.
+- Tool guidance now tells agents to omit `plan_steps.criterionIds` during new task creation unless generated criterion IDs are already known.

@@ -272,6 +272,7 @@ Rules:
 
 - `initial_steps` become ordered task steps with IDs such as `T1-S1`.
 - Structured `plan_steps` should provide expected output, linked criteria, evidence requirement, and allowed actions.
+- During new task creation, agents should omit `plan_steps.criterionIds` unless generated criterion IDs are already known. Omitted criterion IDs link the step to all task criteria after IDs such as `T1-AC1` are generated.
 - Structured `plan_steps` should also include a granularity check. A step is executable only when it is `atomic`.
 - The first step is active when the task is activated.
 - Agents must complete or skip the current open step before advancing.
@@ -433,6 +434,7 @@ Optional parameters:
 Behavior:
 
 - creates task event,
+- assigns the next task ID from successfully persisted tasks so rejected plan attempts do not create invisible ID gaps,
 - converts `initial_steps` or structured `plan_steps` to ordered plan steps,
 - rejects task creation without at least one ordered plan step,
 - treats steps without an atomic granularity check as requiring breakdown before execution,
@@ -942,6 +944,7 @@ Verified with real Pi dogfood:
 - live TTY `/tasks` command output and clean `/quit`,
 - forked-session replay of copied custom entries,
 - installed-package Pi smoke through `node_modules/pi-tasks/dist/index.js`.
+- rejected `task_plan` ID regression: an invalid plan is rejected, then the first successful task in that session is still `T1`.
 
 Remaining runtime coverage:
 
