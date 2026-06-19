@@ -218,7 +218,29 @@ export interface TaskBlocker {
 }
 ```
 
-### 5.7 Task
+### 5.7 TaskStep
+
+```ts
+export interface TaskStep {
+	id: string;
+	taskId: string;
+	text: string;
+	status: "pending" | "active" | "done" | "skipped";
+	evidenceIds: string[];
+	note?: string;
+	startedAt?: string;
+	completedAt?: string;
+}
+```
+
+Rules:
+
+- `initial_steps` become ordered task steps with IDs such as `T1-S1`.
+- The first step is active when the task is activated.
+- Agents must complete or skip the current open step before advancing.
+- Skipping a step requires a reason or note.
+
+### 5.8 Task
 
 ```ts
 export interface Task {
@@ -230,6 +252,7 @@ export interface Task {
 	progress: number;
 	currentStep?: string;
 	nextAction?: string;
+	planSteps: TaskStep[];
 	acceptanceCriteria: AcceptanceCriterion[];
 	evidence: TaskEvidence[];
 	decisions: TaskDecision[];
@@ -365,6 +388,7 @@ Optional parameters:
 Behavior:
 
 - creates task event,
+- converts `initial_steps` to ordered plan steps,
 - optionally activates it,
 - if activating, deactivates previous active task by moving it to `pending` unless explicit parallel support exists,
 - returns task summary and next action.
@@ -401,11 +425,17 @@ Parameters:
 - `progress`
 - `current_step`
 - `next_action`
+- `step_id`
+- `step_status`
+- `step_evidence_ids`
 - `note`
 
 Behavior:
 
 - validates transition,
+- rejects attempts to update a later plan step before the current open step,
+- advances to the next plan step after the current step is marked `done` or `skipped`,
+- rejects skipping a plan step without a reason or note,
 - appends event,
 - updates widget/status.
 
@@ -468,6 +498,7 @@ Parameters:
 Behavior:
 
 - rejects unsupported completion,
+- rejects completion while any plan step is still active or pending unless forced with a reason,
 - appends completion event,
 - sets progress to 100,
 - updates widget/status,
@@ -692,21 +723,65 @@ The goal can be marked complete only when:
 - Completion with evidence succeeds.
 - `npm run check` passes.
 - `npm test` passes.
+- `npm run build` passes.
 - `node --experimental-strip-types -e "import('./index.ts')"` passes.
+- `node -e "import('./dist/index.js')"` passes.
 - `npm pack --dry-run` passes.
+- tarball-installed package import passes.
 - Pi dogfood passes for create/update/evidence/complete/resume/quit.
 - README and docs state implemented behavior without overclaiming.
 
-## 20. Documentation Completeness Assessment
+## 20. Current Implementation Status
 
-After adding this implementation spec, documentation completeness is 96/100.
+As of 2026-06-18, the repo contains an MVP implementation for:
 
-Remaining 4 points are intentionally withheld until implementation spikes verify:
+- typed model and event contracts in `src/model.ts`,
+- pure reducer and transition validation in `src/reducer.ts`,
+- ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
+- duplicate evidence deduplication in tool execution and replay,
+- branch custom-entry replay in `src/store.ts`,
+- tool registration in `src/tools.ts`,
+- `/tasks` command registration in `src/commands.ts`, including detailed step, blocker, decision, criterion, and evidence output,
+- compact status/widget formatting in `src/render.ts` and `src/widget.ts`,
+- startup-light extension registration in `index.ts`,
+- compiled npm runtime in `dist/`,
+- unit tests in `test/unit/`.
+
+Verified locally:
+
+- strict source typecheck with `tsc --noEmit`,
+- Biome check,
+- unit tests,
+- build with `tsc -p tsconfig.build.json`,
+- strip-types import smoke,
+- compiled `dist/index.js` import smoke,
+- `npm pack --dry-run` using an isolated npm cache,
+- tarball install and `import("pi-tasks")`,
+- `npm audit --audit-level=low` using an isolated npm cache.
+
+Verified with real Pi dogfood:
+
+- task creation, ordered step update, evidence rejection, evidence attachment, completion, and listing,
+- adversarial rejection of out-of-order step update, premature completion, duplicate evidence, and skip-without-reason,
+- same-session resume from persisted `pi-tasks:event` custom entries,
+- blocked task display with blocker source, reason, unblock condition, resolved blocker audit trail, and explicit user decision,
+- live TTY `/tasks` command output and clean `/quit`,
+- forked-session replay of copied custom entries,
+- installed-package Pi smoke through `node_modules/pi-tasks/dist/index.js`.
+
+Remaining runtime coverage:
+
+- compaction behavior after real Pi context trimming,
+- narrow-terminal visual QA in a live Pi TUI session,
+- interactive branch divergence navigation inside a live Pi session tree.
+
+## 21. Documentation Completeness Assessment
+
+After the MVP implementation and dogfood pass, documentation completeness is 98/100.
+
+Remaining 2 points are intentionally withheld until runtime checks verify:
 
 - exact `appendEntry` custom entry behavior under compaction,
-- exact branch/fork replay behavior in a real Pi TUI session,
-- final UI width behavior in narrow terminals,
-- and whether `require` guard mode is reliable enough for commercial release.
+- final UI width behavior in narrow terminals.
 
-These are runtime validation items, not planning gaps.
-
+These are runtime validation items, not planning gaps. Branch replay and forked-session replay are covered by unit tests and real Pi dogfood; interactive branch divergence navigation remains future coverage.

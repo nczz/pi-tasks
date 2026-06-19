@@ -3,15 +3,15 @@
 	"version": "0.1.0",
 	"description": "Pi-native task and progress contracts for agents and users",
 	"type": "module",
-	"main": "index.ts",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"pi": {
 		"extensions": [
-			"./index.ts"
+			"./dist/index.js"
 		]
 	},
 	"files": [
-		"index.ts",
-		"src/",
+		"dist/",
 		"docs/",
 		"README.md",
 		"CHANGELOG.md",
@@ -30,12 +30,23 @@
 		"developer-tools"
 	],
 	"scripts": {
-		"check": "biome check --write --error-on-warnings .",
-		"test": "vitest --run test/unit/"
+		"build": "tsc -p tsconfig.build.json",
+		"check": "biome check --write --error-on-warnings index.ts src test docs README.md CHANGELOG.md package.json package-lock.json tsconfig.json tsconfig.build.json",
+		"prepack": "npm run build",
+		"test": "vitest --run test/unit/",
+		"typecheck": "tsc --noEmit"
 	},
 	"engines": {
 		"node": ">=22.0.0"
 	},
-	"license": "MIT"
+	"license": "MIT",
+	"devDependencies": {
+		"@biomejs/biome": "2.3.5",
+		"@types/node": "22.19.19",
+		"typescript": "5.9.3",
+		"vitest": "3.2.6"
+	},
+	"overrides": {
+		"esbuild": "0.28.1"
+	}
 }
-
