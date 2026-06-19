@@ -9,6 +9,7 @@
 - Real Pi dogfood evidence for task lifecycle, evidence-enforced completion, resume replay, blocked display, `/tasks`, `/quit`, and forked-session replay.
 - Release-hardening dogfood evidence for ordered-step misuse, duplicate evidence rejection, decision/blocker rendering, install, tarball import, and installed-package Pi smoke.
 - Commercial contract dogfood evidence for structured `plan_steps`, `task_focus`, evidence-required step completion, and scope drift warnings.
+- Final release evidence for real Pi manual compaction, post-compaction resume replay, live `/tree` branch navigation, and 50-column TUI rendering.
 - Recursive decomposition tools and tests for non-atomic step rejection, granularity checks, and child-step replacement.
 - Compaction-resilient resume contract with `task_resume`, `task_checkpoint`, snapshot resume fields, and snapshot replay tests.
 - Plan quality and evidence quality gates for weak-model resistance, plus recovery guidance on tool rejection.

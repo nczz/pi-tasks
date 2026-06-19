@@ -35,8 +35,11 @@ Environment:
 - Installed package quality gate session ID: `weakmodel-installed-plan-gate`
 - Readiness regression session directory: `/private/tmp/pi-tasks-id-regression/sessions`
 - Readiness regression session ID: `id-regression-1`
+- Branch navigation session ID: `branch-live-fork-1`
 - Installed ID regression session directory: `/private/tmp/pi-tasks-installed-smoke-3/sessions`
 - Installed ID regression session ID: `installed-id-regression-1`
+- Final release session directory: `/private/tmp/pi-tasks-final-release/sessions`
+- Final installed package smoke session ID: `final-installed-smoke-1`
 
 ## Passed Scenarios
 
@@ -83,6 +86,12 @@ Environment:
 - Confirmed live PTY `/tasks` renders the active task, step contract, criterion, and verification gaps.
 - Confirmed live PTY `/quit` exits cleanly with Pi's resume instruction.
 - Confirmed installed package runtime preserves rejected-plan ID behavior through `./node_modules/pi-tasks/dist/index.js`.
+- Confirmed final clean tarball install supports `import("pi-tasks")`.
+- Confirmed final installed package runtime rejects invalid `task_plan`, then creates the first valid installed-package task as `T1`.
+- Confirmed real Pi manual `/compact` fired a native compaction event and a `pi-tasks` snapshot with `reason: compaction`.
+- Confirmed post-compaction replay with `task_resume` restores active task `T1`, current step `T1-S1`, allowed action `task_evidence`, and completion gaps.
+- Confirmed interactive `/tree` navigation in a forked live PTY can move to the branch point before valid task creation, where `/tasks` correctly reports `No tasks on this branch.`
+- Confirmed 50-column live Pi TUI rendering keeps status/widget lines readable with truncation and does not cover the input line.
 
 ## Commands
 
@@ -243,6 +252,59 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
   pi --no-extensions --extension ./index.ts --session-id id-regression-1
 ```
 
+Manual compaction and post-compaction resume:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --session-id id-regression-1
+```
+
+Then run `/compact pi-tasks commercial release dogfood: preserve task state and resume contract` and `/quit`.
+
+Observed transcript evidence:
+
+- transcript: `/private/tmp/pi-tasks-id-regression/sessions/2026-06-19T10-15-30-295Z_id-regression-1.jsonl`
+- native compaction: `2cfcc4a9`, `tokensBefore: 3663`
+- pi-tasks snapshot: `snapshot-2026-06-19T13:31:35.340Z`
+- snapshot reason: `compaction`
+- snapshot resume task: `T1`
+- snapshot gaps: `T1-S1 step pending`, `T1-AC1 pending`, `no evidence`
+
+Then verify replay after compaction:
+
+```sh
+gtimeout 60s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_resume,task_list \
+  --session-id id-regression-1 \
+  -p "After manual compaction, call task_resume and task_list. Report the active task id, current step, and verification gaps."
+```
+
+Observed result: active task `T1`, current step `T1-S1`, allowed action `task_evidence`, gaps `no evidence` and `T1-AC1 pending`.
+
+Interactive branch divergence navigation:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --fork id-regression-1 --name branch-live-fork-1
+```
+
+Then run `/tasks`, run `/tree`, select the point after the rejected invalid `task_plan` but before valid `T1` creation, choose `No summary`, and run `/tasks`.
+
+Observed result: Pi reports `Navigated to selected point`, and `/tasks` reports `No tasks on this branch.`
+
+Narrow terminal live TUI:
+
+```sh
+stty cols 50 rows 24
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-id-regression/sessions \
+  pi --no-extensions --extension ./index.ts --session-id id-regression-1
+```
+
+Then run `/tasks` and `/quit`.
+
+Observed result: at 50 columns, the active-task widget wraps/truncates long `next` and `gaps` text, `/tasks` output wraps inside the terminal width, and the input line remains usable.
+
 Installed package ID regression:
 
 ```sh
@@ -260,6 +322,27 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-installed-smoke-3/sessions
   -p "First call task_plan with a deliberately invalid vague atomic step missing allowedActions so it is rejected. Then create a valid task named Installed ID Regression with one criterion and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. Call task_list and report the created task id."
 ```
 
+Final clean tarball install and installed-package runtime:
+
+```sh
+rm -rf /private/tmp/pi-tasks-final-release
+mkdir -p /private/tmp/pi-tasks-final-release/tarball /private/tmp/pi-tasks-final-release/consumer /private/tmp/pi-tasks-final-release/sessions
+npm pack --pack-destination /private/tmp/pi-tasks-final-release/tarball
+cd /private/tmp/pi-tasks-final-release/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-final-release/tarball/pi-tasks-0.1.0.tgz
+node -e "import('pi-tasks')"
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-final-release/sessions \
+  pi --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_plan,task_list \
+  --session-id final-installed-smoke-1 \
+  --name final-installed-smoke-1 \
+  -p "Installed package final smoke. First call task_plan with a deliberately invalid vague atomic step missing allowedActions so it is rejected. Then create a valid task named Final Installed Smoke with one acceptance criterion and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. Call task_list and report the created task id."
+```
+
+Observed result: invalid `task_plan` rejected with `expected output is too short; step text uses vague or broad wording; allowedActions are required`; valid installed-package task created as `T1: Final Installed Smoke`; `task_list` confirmed `T1` active.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -269,14 +352,18 @@ Also passed on 2026-06-19:
 - `npm test` (42 unit tests)
 - `npm run build`
 - `node --experimental-strip-types -e "import('./index.ts')"`
+- `node -e "import('./dist/index.js')"`
 - `npm pack --dry-run` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
+- `npm pack --pack-destination /private/tmp/pi-tasks-final-release/tarball`
+- clean consumer `npm install /private/tmp/pi-tasks-final-release/tarball/pi-tasks-0.1.0.tgz`
+- clean consumer `node -e "import('pi-tasks')"`
 - `npm audit --audit-level=low` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
+- installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 
-The following are not counted as failed MVP gates, but should be covered before expanding the UI or release claims:
+No remaining runtime coverage gaps are known for the 0.1.0 release scope.
 
-- deterministic proof that a real Pi context-trimming compaction event fired in this environment,
-- long multi-step Pi self-correction prompts can still stall at the external agent layer; short staged prompts are verified,
-- narrow-terminal visual QA for status/widget rendering,
-- interactive branch divergence navigation inside a live Pi session tree.
+Known runtime note:
+
+- Long multi-step Pi self-correction prompts can still stall at the external agent layer; short staged prompts are verified and should remain the recommended release dogfood style.

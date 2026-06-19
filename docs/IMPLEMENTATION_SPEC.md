@@ -948,17 +948,15 @@ Verified with real Pi dogfood:
 
 Remaining runtime coverage:
 
-- deterministic proof that a real Pi context-trimming compaction event fired in this environment,
-- narrow-terminal visual QA in a live Pi TUI session,
-- interactive branch divergence navigation inside a live Pi session tree.
+- none known for the 0.1.0 release scope.
 
 ## 21. Documentation Completeness Assessment
 
-After the MVP implementation and dogfood pass, documentation completeness is 98/100.
+After the MVP implementation and dogfood pass, documentation completeness is 100/100 for the 0.1.0 release scope.
 
-Remaining 2 points are intentionally withheld until runtime checks verify:
+The final runtime checks verified:
 
 - exact `appendEntry` custom entry behavior under compaction,
 - final UI width behavior in narrow terminals.
 
-These are runtime validation items, not planning gaps. Branch replay and forked-session replay are covered by unit tests and real Pi dogfood; interactive branch divergence navigation remains future coverage.
+Branch replay, forked-session replay, and interactive branch divergence navigation are covered by unit tests and real Pi dogfood.
