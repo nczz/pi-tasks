@@ -28,6 +28,20 @@ Pi-native task and progress contract for agents and users.
 - Compaction snapshot hook via `session_before_compact`.
 - npm package runtime is built to `dist/`; source `index.ts` remains usable for local extension development.
 
+## Install
+
+After the npm package is published:
+
+```sh
+pi install npm:pi-tasks
+```
+
+For local development from this checkout:
+
+```sh
+pi install ./
+```
+
 ## Completion Rules
 
 `task_update` rejects unsupported step completion when:

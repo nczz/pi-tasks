@@ -1,14 +1,26 @@
 {
 	"name": "pi-tasks",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Pi-native task and progress contracts for agents and users",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nczz/pi-tasks.git"
+	},
+	"bugs": {
+		"url": "https://github.com/nczz/pi-tasks/issues"
+	},
+	"homepage": "https://github.com/nczz/pi-tasks#readme",
 	"pi": {
 		"extensions": [
 			"./dist/index.js"
 		]
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
 	},
 	"files": [
 		"dist/",

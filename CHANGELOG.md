@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.1.0] - Unreleased
+## [0.1.1] - 2026-06-19
+
+Initial public release candidate.
 
 ### Added
 - Initial product planning for a Pi-native task and progress contract extension.
