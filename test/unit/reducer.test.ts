@@ -52,8 +52,9 @@ function coarseCreated(): TaskEvent {
 		...created(),
 		planSteps: [
 			{
-				text: "Implement release workflow",
-				expectedOutput: "Release workflow is complete",
+				text: "Prepare release verification package",
+				expectedOutput:
+					"Release verification package produces auditable output",
 				criterionIds: ["T1-AC1", "T1-AC2"],
 				evidenceRequired: true,
 				allowedActions: ["inspect", "edit", "test"],
@@ -101,6 +102,13 @@ function evidence(
 			summary: "vitest passed",
 			passed: true,
 			references: ["npm test"],
+			quality: {
+				source: "vitest",
+				reproducible: true,
+				verifier: "tool",
+				artifactRefs: ["npm test"],
+				observedOutput: "Test suite passed",
+			},
 		},
 		criterionIds: ["T1-AC1", "T1-AC2"],
 		...params,
@@ -239,6 +247,13 @@ describe("task reducer", () => {
 					summary: "pack dry-run passed",
 					passed: true,
 					references: ["npm pack --dry-run"],
+					quality: {
+						source: "npm",
+						reproducible: true,
+						verifier: "tool",
+						artifactRefs: ["npm pack --dry-run"],
+						observedOutput: "npm pack dry-run completed",
+					},
 				},
 			}),
 			criterionIds: ["T1-AC1"],
@@ -320,6 +335,13 @@ describe("task reducer", () => {
 					summary: "vitest passed",
 					passed: true,
 					references: ["npm test"],
+					quality: {
+						source: "vitest",
+						reproducible: true,
+						verifier: "tool",
+						artifactRefs: ["npm test"],
+						observedOutput: "Test suite passed",
+					},
 				},
 			}),
 		]);
@@ -366,6 +388,35 @@ describe("task reducer", () => {
 		).toThrow("requires scopeReason");
 	});
 
+	it("requires scope drift warnings to be resolved before completion", () => {
+		const warning =
+			"off_plan: Edited an unrelated release script (Needed to verify drift detection)";
+		expect(() =>
+			apply([
+				created(),
+				updated({
+					activity: "Edited an unrelated release script",
+					scope: "off_plan",
+					scopeReason: "Needed to verify drift detection",
+				}),
+				...evidenceThenStepDone(),
+				complete(),
+			]),
+		).toThrow("unresolved scope drift warning");
+		const state = apply([
+			created(),
+			updated({
+				activity: "Edited an unrelated release script",
+				scope: "off_plan",
+				scopeReason: "Needed to verify drift detection",
+			}),
+			...evidenceThenStepDone(),
+			updated({ resolveWarnings: [warning] }),
+			complete(),
+		]);
+		expect(state.tasks.T1.status).toBe("done");
+	});
+
 	it("derives high active progress when all criteria are satisfied", () => {
 		const state = apply([created(), ...evidenceThenStepDone()]);
 		expect(state.tasks.T1.status).toBe("active");
@@ -388,6 +439,30 @@ describe("task reducer", () => {
 				}),
 			]),
 		).toThrow(TaskTransitionError);
+	});
+
+	it("rejects low-quality evidence without observed output", () => {
+		expect(() =>
+			apply([
+				created(),
+				evidence({
+					evidence: {
+						id: "E1",
+						type: "test",
+						level: "unit_test",
+						summary: "tests passed",
+						passed: true,
+						references: ["npm test"],
+						quality: {
+							source: "vitest",
+							reproducible: true,
+							verifier: "agent",
+							artifactRefs: ["npm test"],
+						},
+					},
+				}),
+			]),
+		).toThrow("observedOutput is required");
 	});
 
 	it("rejects completion without evidence", () => {

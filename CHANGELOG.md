@@ -11,6 +11,7 @@
 - Commercial contract dogfood evidence for structured `plan_steps`, `task_focus`, evidence-required step completion, and scope drift warnings.
 - Recursive decomposition tools and tests for non-atomic step rejection, granularity checks, and child-step replacement.
 - Compaction-resilient resume contract with `task_resume`, `task_checkpoint`, snapshot resume fields, and snapshot replay tests.
+- Plan quality and evidence quality gates for weak-model resistance, plus recovery guidance on tool rejection.
 - Release process and dogfood checklist documents.
 
 ### Changed
@@ -18,6 +19,7 @@
 - Added structured step contracts with expected output, linked criteria, required evidence, allowed actions, and the `task_focus` tool.
 - Added recursive decomposition gating with `task_granularity_check` and `task_decompose`; non-atomic steps cannot be marked done.
 - Added `task_evidence.step_ids` and narrowed automatic step evidence linking to avoid satisfying multiple child steps from one broad criterion match.
+- `task_complete` now rejects unresolved scope drift warnings unless forced or explicitly resolved.
 - Evidence-required steps now reject `done` until linked evidence exists.
 - `task_update` can record `within_step`, `scope_change`, and `off_plan` activity; drift requires a reason and appears in task warnings.
 - Progress now derives upward from plan steps, satisfied criteria, and evidence so active tasks do not stay at 1% after verification work is complete.

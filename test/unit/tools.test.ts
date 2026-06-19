@@ -131,6 +131,8 @@ describe("registered task tools", () => {
 			ctx,
 		);
 		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0]?.text).toContain("Recovery guidance");
+		expect(rejected.content[0]?.text).toContain("pi-tasks resume");
 		const firstEvidence = await execute(
 			evidence,
 			{
@@ -139,7 +141,16 @@ describe("registered task tools", () => {
 				level: "unit_test",
 				summary: "fake tool harness passed",
 				passed: "true",
+				references: ["vitest tool harness"],
 				criterion_ids: ["T1-AC1"],
+				step_ids: ["T1-S1"],
+				quality: {
+					source: "vitest",
+					reproducible: true,
+					verifier: "tool",
+					artifactRefs: ["vitest tool harness"],
+					observedOutput: "fake tool harness passed",
+				},
 			},
 			ctx,
 		);
@@ -152,7 +163,16 @@ describe("registered task tools", () => {
 				level: "unit_test",
 				summary: "fake tool harness passed",
 				passed: "true",
+				references: ["vitest tool harness"],
 				criterion_ids: ["T1-AC1"],
+				step_ids: ["T1-S1"],
+				quality: {
+					source: "vitest",
+					reproducible: true,
+					verifier: "tool",
+					artifactRefs: ["vitest tool harness"],
+					observedOutput: "fake tool harness passed",
+				},
 			},
 			ctx,
 		);

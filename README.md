@@ -10,9 +10,12 @@ Pi-native task and progress contract for agents and users.
 - Pure reducer with transition validation and evidence-before-completion enforcement.
 - Ordered plan steps from `initial_steps` or structured `plan_steps`; agents must complete or skip the current step before advancing.
 - Step-level contracts with expected output, linked criteria, required evidence, and allowed actions.
+- Plan quality gate rejects atomic steps that are vague, unverifiable, over-broad, or missing concrete allowed actions.
 - Recursive decomposition gate: non-atomic steps must be broken into smaller child steps before execution can be marked done.
 - Step-scoped evidence through `task_evidence.step_ids`, preventing one criterion-level evidence item from accidentally satisfying multiple atomic steps.
+- Evidence quality gate requires traceable, reproducible evidence with artifact references and observed output for test/command/dogfood evidence.
 - Compaction-resilient resume contract through `task_resume`, `task_checkpoint`, and snapshot resume fields.
+- Tool rejections include `task_resume` recovery guidance so weaker models can self-correct after errors.
 - Current-step focus tool that tells the agent exactly what work is in scope before acting.
 - Scope drift recording for scope changes and off-plan activity.
 - Derived progress automatically advances from completed steps, satisfied criteria, and evidence while preserving manual progress updates.
@@ -32,6 +35,7 @@ Pi-native task and progress contract for agents and users.
 - a later step is updated before the current open step,
 - a non-atomic step is marked done before recursive decomposition,
 - an evidence-required step is marked done before linked evidence exists,
+- evidence lacks traceable quality fields such as artifact references or observed output,
 - a step is skipped without a reason or note,
 - or `scope_change` / `off_plan` activity is recorded without `scope_reason`.
 
@@ -42,6 +46,7 @@ Pi-native task and progress contract for agents and users.
 - required criteria are not satisfied or skipped,
 - a criterion is marked satisfied without evidence,
 - there is an unresolved blocker,
+- unresolved `scope_change` or `off_plan` warnings remain,
 - or all completion evidence is only `not_verified`.
 
 Forced completion requires `force_with_reason`; the task is marked done with confidence below 80 and a warning.

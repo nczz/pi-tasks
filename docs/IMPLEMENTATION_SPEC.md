@@ -162,6 +162,14 @@ export interface TaskEvidence {
 	summary: string;
 	passed: boolean | "unknown";
 	references: string[];
+	quality: {
+		source: string;
+		reproducible: boolean;
+		verifier: "agent" | "tool" | "user" | "external";
+		command?: string;
+		artifactRefs: string[];
+		observedOutput?: string;
+	};
 	createdAt: string;
 }
 ```
@@ -170,6 +178,9 @@ Rules:
 
 - `summary` is required.
 - `passed: true` requires a non-`not_verified` level unless type is `note`.
+- non-note evidence requires at least one reference.
+- `test`, `command`, and `dogfood` evidence require observed output and artifact references.
+- `command` evidence also requires the command string.
 - `external_unverified` is allowed but cannot satisfy release-grade evidence by itself.
 
 ### 5.4 Acceptance Criterion
@@ -247,6 +258,10 @@ export interface TaskStep {
 	criterionIds: string[];
 	evidenceRequired: boolean;
 	allowedActions: string[];
+	planQuality: {
+		score: number;
+		issues: string[];
+	};
 	note?: string;
 	startedAt?: string;
 	completedAt?: string;
@@ -265,6 +280,7 @@ Rules:
 - Skipping a step requires a reason or note.
 - Decomposition replaces a parent step with ordered child steps such as `T1-S1.1` and preserves parent traceability through `parentStepId`.
 - Step evidence should be linked with `task_evidence.step_ids`; criterion-only evidence is auto-linked to a step only when exactly one step matches the criterion.
+- Plan quality gate rejects steps with vague wording, weak expected output, broad allowed actions, missing criterion links, or non-evidence-gated atomic work.
 
 ### 5.8 Task
 
@@ -551,6 +567,7 @@ Parameters:
 - `scope`
 - `scope_reason`
 - `note`
+- `resolve_warnings`
 
 Behavior:
 
@@ -561,6 +578,7 @@ Behavior:
 - rejects `done` for evidence-required steps without linked evidence,
 - rejects skipping a plan step without a reason or note,
 - records warnings for `scope_change` or `off_plan` activity and requires `scope_reason`,
+- resolves exact warning strings through `resolve_warnings`,
 - appends event,
 - updates widget/status.
 
@@ -580,11 +598,13 @@ Parameters:
 - `references`
 - `criterion_ids`
 - `step_ids`
+- `quality`
 
 Behavior:
 
 - appends evidence,
 - links evidence to explicit step IDs when provided,
+- rejects low-quality evidence that lacks traceability, reproducibility, required artifact references, or observed output for test/command/dogfood evidence,
 - marks referenced criteria satisfied only when `passed: true`,
 - never marks task done by itself.
 
@@ -626,6 +646,7 @@ Behavior:
 
 - rejects unsupported completion,
 - rejects completion while any plan step is still active or pending unless forced with a reason,
+- rejects completion while unresolved `off_plan` or `scope_change` warnings remain,
 - appends completion event,
 - sets progress to 100,
 - updates widget/status,
@@ -883,6 +904,7 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - pure reducer and transition validation in `src/reducer.ts`,
 - ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
 - structured step contracts with expected output, criterion links, evidence requirement, and allowed actions,
+- plan quality and evidence quality gates for weak-model resistance,
 - recursive decomposition gate with `task_granularity_check` and `task_decompose`,
 - `task_focus` current-step guidance before action,
 - `task_resume`, `task_checkpoint`, and snapshot resume fields for compaction-safe continuation,

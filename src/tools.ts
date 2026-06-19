@@ -1,6 +1,7 @@
 import { createEventId, SequentialIdGenerator } from "./ids.ts";
 import type {
 	AcceptanceCriterion,
+	EvidenceQuality,
 	EvidenceType,
 	Task,
 	TaskDecision,
@@ -98,6 +99,7 @@ interface TaskUpdateParams extends Record<string, unknown> {
 	scope_reason?: string;
 	note?: string;
 	reason?: string;
+	resolve_warnings?: string[];
 	blocker?: {
 		reason: string;
 		blockedBy: "user" | "external" | "environment" | "dependency" | "ambiguity";
@@ -114,6 +116,7 @@ interface TaskEvidenceParams extends Record<string, unknown> {
 	references?: string[];
 	criterion_ids?: string[];
 	step_ids?: string[];
+	quality?: EvidenceQuality;
 }
 
 interface TaskDecisionParams extends Record<string, unknown> {
@@ -431,6 +434,7 @@ export function registerTaskTools(
 			"Evidence-required steps need linked evidence before step_status=done.",
 			"Do not skip ahead; ordered plan steps must be completed or skipped in the displayed order.",
 			"Use activity with scope=within_step, scope_change, or off_plan to document meaningful work and drift.",
+			"Use resolve_warnings to explicitly close scope drift warnings before task_complete.",
 			"Moving to blocked requires blocker details; unblocking requires a reason.",
 		],
 		parameters: Type.Object({
@@ -448,6 +452,7 @@ export function registerTaskTools(
 			),
 			scope_reason: Type.Optional(Type.String()),
 			note: Type.Optional(Type.String()),
+			resolve_warnings: Type.Optional(Type.Array(Type.String())),
 			reason: Type.Optional(
 				Type.String({ description: "Reason for unblock/rework transition" }),
 			),
@@ -489,6 +494,9 @@ export function registerTaskTools(
 					: {}),
 				...(params.note !== undefined ? { note: params.note } : {}),
 				...(params.reason !== undefined ? { reason: params.reason } : {}),
+				...(params.resolve_warnings !== undefined
+					? { resolveWarnings: params.resolve_warnings }
+					: {}),
 				...(params.blocker ? { blocker: params.blocker } : {}),
 			});
 			return appendAndReport(
@@ -513,6 +521,7 @@ export function registerTaskTools(
 			"Passing non-note evidence must use a verification level stronger than not_verified.",
 			"Attach criterion IDs when evidence proves specific acceptance criteria.",
 			"Attach step_ids when evidence proves specific atomic steps, especially when multiple steps share the same criterion.",
+			"Provide quality.source, quality.reproducible, quality.verifier, quality.artifactRefs, and observedOutput for test/command/dogfood evidence.",
 		],
 		parameters: Type.Object({
 			task_id: Type.String(),
@@ -523,6 +532,7 @@ export function registerTaskTools(
 			references: Type.Optional(Type.Array(Type.String())),
 			criterion_ids: Type.Optional(Type.Array(Type.String())),
 			step_ids: Type.Optional(Type.Array(Type.String())),
+			quality: Type.Optional(evidenceQualitySchema()),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const duplicate = findDuplicateEvidenceForParams(
@@ -547,6 +557,7 @@ export function registerTaskTools(
 					summary: params.summary,
 					passed: parsePassed(params.passed),
 					references: params.references ?? [],
+					...(params.quality ? { quality: params.quality } : {}),
 				},
 				...(params.criterion_ids ? { criterionIds: params.criterion_ids } : {}),
 				...(params.step_ids ? { stepIds: params.step_ids } : {}),
@@ -661,6 +672,17 @@ function granularityCheckSchema() {
 	});
 }
 
+function evidenceQualitySchema() {
+	return Type.Object({
+		source: Type.String(),
+		reproducible: Type.Boolean(),
+		verifier: Type.Enum(["agent", "tool", "user", "external"] as const),
+		command: Type.Optional(Type.String()),
+		artifactRefs: Type.Array(Type.String()),
+		observedOutput: Type.Optional(Type.String()),
+	});
+}
+
 function appendAndReport(
 	pi: ExtensionAPI,
 	store: TaskRuntimeStore,
@@ -680,8 +702,12 @@ function appendAndReport(
 			state,
 		);
 	} catch (error) {
+		const resume = formatTaskResume(store.getState());
 		return {
-			...textResult(`Error: ${errorText(error)}`, store.getState()),
+			...textResult(
+				`Error: ${errorText(error)}\n\nRecovery guidance:\n${resume}`,
+				store.getState(),
+			),
 			isError: true,
 		};
 	}

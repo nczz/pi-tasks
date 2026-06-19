@@ -96,7 +96,7 @@ export function formatTaskList(
 		);
 		const planSteps = (task.planSteps ?? []).map(
 			(step) =>
-				`  - ${step.id} step [${step.status}/${step.decompositionStatus}] ${step.text}; output: ${step.expectedOutput}${step.parentStepId ? `; parent:${step.parentStepId}` : ""}; atomic:${step.granularityCheck.isAtomic}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
+				`  - ${step.id} step [${step.status}/${step.decompositionStatus}] ${step.text}; output: ${step.expectedOutput}${step.parentStepId ? `; parent:${step.parentStepId}` : ""}; atomic:${step.granularityCheck.isAtomic}; planQuality:${step.planQuality.score}${step.planQuality.issues.length ? ` (${step.planQuality.issues.join("; ")})` : ""}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
 		);
 		const decisions = task.decisions.map(
 			(decision) =>
@@ -114,7 +114,7 @@ export function formatTaskList(
 			),
 			...task.evidence.map(
 				(item) =>
-					`  - ${item.id} evidence ${item.level} ${item.passed}: ${item.summary}${item.references.length ? ` (${item.references.join(", ")})` : ""}`,
+					`  - ${item.id} evidence ${item.level} ${item.passed}: ${item.summary}; source:${item.quality.source}; reproducible:${item.quality.reproducible}${item.references.length ? ` (${item.references.join(", ")})` : ""}`,
 			),
 		];
 	});
@@ -141,6 +141,9 @@ export function formatTaskFocus(state: TaskState): string {
 		lines.push(`Current step: ${step.id} [${step.status}] ${step.text}`);
 		lines.push(`Granularity: ${step.decompositionStatus}`);
 		lines.push(`Atomicity reason: ${step.granularityCheck.reason}`);
+		lines.push(
+			`Plan quality: ${step.planQuality.score}${step.planQuality.issues.length ? ` (${step.planQuality.issues.join("; ")})` : ""}`,
+		);
 		if (step.parentStepId) lines.push(`Parent step: ${step.parentStepId}`);
 		lines.push(`Expected output: ${step.expectedOutput}`);
 		lines.push(

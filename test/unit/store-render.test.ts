@@ -315,6 +315,13 @@ describe("store replay and render helpers", () => {
 				summary: "resume smoke passed",
 				passed: true,
 				references: ["npm test"],
+				quality: {
+					source: "vitest",
+					reproducible: true,
+					verifier: "tool",
+					artifactRefs: ["npm test"],
+					observedOutput: "resume smoke test passed",
+				},
 			},
 			criterionIds: ["T2-AC1"],
 			stepIds: ["T2-S1.1"],

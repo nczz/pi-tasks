@@ -28,6 +28,11 @@ Environment:
 - Installed decomposition tools session ID: `pi-tasks-installed-decomposition-tools`
 - Compaction resume session directory: `/private/tmp/pi-tasks-compaction-dogfood/sessions`
 - Compaction resume session ID: `pi-tasks-compaction-resume`
+- Weak-model quality session directory: `/private/tmp/pi-tasks-weakmodel-dogfood/sessions`
+- English plan gate session ID: `weakmodel-plan-gate-en`
+- English evidence gate session ID: `weakmodel-evidence-gate-en2`
+- Chinese plan gate session ID: `weakmodel-plan-gate-zh`
+- Installed package quality gate session ID: `weakmodel-installed-plan-gate`
 
 ## Passed Scenarios
 
@@ -64,6 +69,11 @@ Environment:
 - Confirmed `task_resume` reports current decomposed child step, lineage, next allowed actions, and verification gaps.
 - Confirmed `task_checkpoint` persists a snapshot with resume fields and `task_resume` remains stable after checkpoint.
 - Confirmed same-session replay after checkpoint restores the current child step `T1-S1.2` and next allowed action `task_evidence`.
+- Confirmed English bad atomic plan is rejected by the plan quality gate and returns `pi-tasks resume` recovery guidance.
+- Confirmed Chinese bad atomic plan is rejected by the plan quality gate and returns `pi-tasks resume` recovery guidance.
+- Confirmed low-quality test evidence without `quality.observedOutput` is rejected and returns `pi-tasks resume` recovery guidance.
+- Confirmed valid evidence with `quality.source`, `quality.reproducible`, `quality.verifier`, `quality.artifactRefs`, and `quality.observedOutput` can be recorded and linked to a step.
+- Confirmed installed package runtime rejects a bad atomic plan through the same quality gate and returns `pi-tasks resume` recovery guidance.
 
 ## Commands
 
@@ -177,6 +187,35 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-compaction-dogfood/session
   -p "Create one non-atomic task, decompose it into atomic child steps, call task_resume, create a task_checkpoint, then report the current child step, lineage, next allowed actions, and verification gaps."
 ```
 
+Weak-model quality gate scenarios:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_resume \
+  --session-id weakmodel-plan-gate-en \
+  --name weakmodel-plan-gate-en \
+  -p "Plan quality gate dogfood. Call task_plan once with a deliberately bad atomic step and report the exact error and recovery guidance."
+```
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_evidence,task_resume \
+  --session-id weakmodel-evidence-gate-en2 \
+  --name weakmodel-evidence-gate-en2 \
+  -p "Create a valid task, then record test evidence without quality.observedOutput and report the exact rejection."
+```
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_resume \
+  --session-id weakmodel-plan-gate-zh \
+  --name weakmodel-plan-gate-zh \
+  -p "中文品質閘門測試。請呼叫 task_plan 建立一個故意很差的 atomic step，回報 exact error，並確認 recovery guidance 是否包含 pi-tasks resume。"
+```
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -194,5 +233,6 @@ Also passed on 2026-06-19:
 The following are not counted as failed MVP gates, but should be covered before expanding the UI or release claims:
 
 - deterministic proof that a real Pi context-trimming compaction event fired in this environment,
+- long multi-step Pi self-correction prompts can still stall at the external agent layer; short staged prompts are verified,
 - narrow-terminal visual QA for status/widget rendering,
 - interactive branch divergence navigation inside a live Pi session tree.

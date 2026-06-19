@@ -45,7 +45,17 @@ export interface TaskEvidence {
 	summary: string;
 	passed: boolean | "unknown";
 	references: string[];
+	quality: EvidenceQuality;
 	createdAt: string;
+}
+
+export interface EvidenceQuality {
+	source: string;
+	reproducible: boolean;
+	verifier: "agent" | "tool" | "user" | "external";
+	command?: string;
+	artifactRefs: string[];
+	observedOutput?: string;
 }
 
 export interface AcceptanceCriterion {
@@ -92,6 +102,7 @@ export interface TaskStep {
 	criterionIds: string[];
 	evidenceRequired: boolean;
 	allowedActions: string[];
+	planQuality: PlanQuality;
 	note?: string;
 	startedAt?: string;
 	completedAt?: string;
@@ -105,6 +116,12 @@ export interface TaskStepInput {
 	allowedActions?: string[];
 	decompositionStatus?: TaskStepGranularityStatus;
 	granularityCheck?: TaskGranularityCheck;
+	planQuality?: PlanQuality;
+}
+
+export interface PlanQuality {
+	score: number;
+	issues: string[];
 }
 
 export interface TaskGranularityCheck {
@@ -219,6 +236,7 @@ export interface TaskUpdatedEvent extends TaskEventBase {
 	scopeReason?: string;
 	note?: string;
 	blocker?: Omit<TaskBlocker, "id" | "taskId" | "since" | "resolvedAt">;
+	resolveWarnings?: string[];
 	reason?: string;
 }
 
@@ -231,7 +249,9 @@ export interface TaskStepsDecomposedEvent extends TaskEventBase {
 
 export interface TaskEvidenceAddedEvent extends TaskEventBase {
 	type: "task.evidence_added";
-	evidence: Omit<TaskEvidence, "taskId" | "createdAt">;
+	evidence: Omit<TaskEvidence, "taskId" | "createdAt" | "quality"> & {
+		quality?: EvidenceQuality;
+	};
 	criterionIds?: string[];
 	stepIds?: string[];
 }

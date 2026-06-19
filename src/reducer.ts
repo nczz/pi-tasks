@@ -1,6 +1,8 @@
 import {
 	type AcceptanceCriterion,
 	createEmptyState,
+	type EvidenceQuality,
+	type PlanQuality,
 	type Task,
 	type TaskEvent,
 	type TaskEvidence,
@@ -13,6 +15,23 @@ import {
 
 const TERMINAL_STATUSES: TaskStatus[] = ["done", "cancelled"];
 const MAX_DECOMPOSITION_DEPTH = 4;
+const MIN_PLAN_QUALITY_SCORE = 80;
+const VAGUE_PLAN_PATTERNS = [
+	/\b(do|handle|fix|improve|update|implement|complete|work on|deal with)\b/i,
+	/完成(全部|所有|整個)?/,
+	/處理(一下|全部|所有)?/,
+	/修好/,
+	/優化/,
+	/弄好/,
+	/整理/,
+];
+const VAGUE_EVIDENCE_PATTERNS = [
+	/\b(done|looks good|seems ok|probably|should work)\b/i,
+	/完成了/,
+	/看起來/,
+	/應該/,
+	/似乎/,
+];
 
 export class TaskTransitionError extends Error {
 	constructor(message: string) {
@@ -237,6 +256,7 @@ function updateTask(
 			since: event.createdAt,
 		});
 	}
+	if (event.resolveWarnings) resolveTaskWarnings(task, event.resolveWarnings);
 	if (event.status)
 		applyStatusChange(state, task, event.status, event.createdAt);
 	if (previousStatus === "blocked" && event.status === "active") {
@@ -259,6 +279,7 @@ function addEvidence(
 		taskId: task.id,
 		summary: event.evidence.summary.trim(),
 		references: event.evidence.references ?? [],
+		quality: normalizeEvidenceQuality(event.evidence.quality, event.evidence),
 		createdAt: event.createdAt,
 	};
 	validateEvidence(evidence);
@@ -461,6 +482,15 @@ function createPlanSteps(
 		const decompositionStatus =
 			step.decompositionStatus ??
 			(granularityCheck.isAtomic ? "atomic" : "needs_breakdown");
+		const planQuality = assessPlanQuality({
+			text,
+			expectedOutput,
+			criterionIds: linkedCriteria,
+			evidenceRequired: step.evidenceRequired ?? true,
+			allowedActions: step.allowedActions ?? [],
+			decompositionStatus,
+			granularityCheck,
+		});
 		validateGranularityContract(
 			{
 				...step,
@@ -469,6 +499,7 @@ function createPlanSteps(
 				criterionIds: linkedCriteria,
 				decompositionStatus,
 				granularityCheck,
+				planQuality,
 				allowedActions: step.allowedActions ?? [],
 				evidenceRequired: step.evidenceRequired ?? true,
 			},
@@ -497,9 +528,57 @@ function createPlanSteps(
 			criterionIds: linkedCriteria,
 			evidenceRequired: step.evidenceRequired ?? true,
 			allowedActions: step.allowedActions ?? [],
+			planQuality,
 			...(status === "active" ? { startedAt: createdAt } : {}),
 		};
 	});
+}
+
+function assessPlanQuality(step: {
+	text: string;
+	expectedOutput: string;
+	criterionIds: string[];
+	evidenceRequired: boolean;
+	allowedActions: string[];
+	decompositionStatus: TaskStep["decompositionStatus"];
+	granularityCheck: TaskGranularityCheck;
+}): PlanQuality {
+	const issues: string[] = [];
+	if (step.text.length < 8) issues.push("step text is too short");
+	if (step.expectedOutput.length < 12)
+		issues.push("expected output is too short");
+	if (containsVaguePattern(step.text))
+		issues.push("step text uses vague or broad wording");
+	if (containsVaguePattern(step.expectedOutput))
+		issues.push("expected output uses vague or broad wording");
+	if (step.allowedActions.length === 0)
+		issues.push("allowedActions are required");
+	if (step.allowedActions.length > 3)
+		issues.push("allowedActions are too broad; use at most three");
+	if (step.allowedActions.some((action) => containsVaguePattern(action))) {
+		issues.push("allowedActions contain vague actions");
+	}
+	if (step.criterionIds.length === 0)
+		issues.push("at least one criterion link is required");
+	if (!step.evidenceRequired) issues.push("evidenceRequired must be true");
+	if (
+		step.decompositionStatus === "atomic" &&
+		(!step.granularityCheck.isAtomic ||
+			!step.granularityCheck.canBeDoneInOneAgentAction ||
+			!step.granularityCheck.hasSingleObservableOutput ||
+			!step.granularityCheck.hasSingleVerificationMethod ||
+			!step.granularityCheck.hasNoHiddenSubtasks)
+	) {
+		issues.push("atomic step has failing granularity flags");
+	}
+	return {
+		score: Math.max(0, 100 - issues.length * 12),
+		issues,
+	};
+}
+
+function containsVaguePattern(value: string): boolean {
+	return VAGUE_PLAN_PATTERNS.some((pattern) => pattern.test(value.trim()));
 }
 
 function normalizeGranularityCheck(step: TaskStepInput): TaskGranularityCheck {
@@ -530,6 +609,7 @@ function validateGranularityContract(
 	step: TaskStepInput & {
 		decompositionStatus: TaskStep["decompositionStatus"];
 		granularityCheck: TaskGranularityCheck;
+		planQuality: PlanQuality;
 		criterionIds: string[];
 		allowedActions: string[];
 		evidenceRequired: boolean;
@@ -539,6 +619,11 @@ function validateGranularityContract(
 	if (!step.granularityCheck.reason.trim()) {
 		throw new TaskTransitionError(
 			`Plan step ${index + 1} granularityCheck.reason is required`,
+		);
+	}
+	if (step.planQuality.score < MIN_PLAN_QUALITY_SCORE) {
+		throw new TaskTransitionError(
+			`Plan step ${index + 1} failed quality gate: ${step.planQuality.issues.join("; ")}`,
 		);
 	}
 	if (step.decompositionStatus === "atomic") {
@@ -670,6 +755,20 @@ function recordScopeSignal(
 	}
 }
 
+function resolveTaskWarnings(task: Task, warnings: string[]): void {
+	for (const warning of warnings) {
+		const trimmed = warning.trim();
+		if (!trimmed) continue;
+		const before = task.warnings.length;
+		task.warnings = task.warnings.filter(
+			(existing) => existing !== trimmed && !existing.startsWith(trimmed),
+		);
+		if (task.warnings.length === before) {
+			throw new TaskTransitionError(`Warning not found: ${trimmed}`);
+		}
+	}
+}
+
 function validateCurrentStepUpdate(task: Task, currentStep: string): void {
 	const openStep = getCurrentOpenStep(task);
 	if (openStep && currentStep.trim() !== openStep.text) {
@@ -710,6 +809,14 @@ function validateCompletion(
 	}
 	if (task.evidence.length === 0 && !forceReason)
 		throw new TaskTransitionError(`Task ${task.id} has no evidence`);
+	const unresolvedDriftWarning = task.warnings.find((warning) =>
+		/^(off_plan|scope_change):/.test(warning),
+	);
+	if (unresolvedDriftWarning && !forceReason) {
+		throw new TaskTransitionError(
+			`Task ${task.id} has unresolved scope drift warning: ${unresolvedDriftWarning}`,
+		);
+	}
 	const evidence =
 		evidenceIds.length > 0
 			? evidenceIds.map((id) => requireEvidence(task, id))
@@ -747,6 +854,31 @@ function validateCompletion(
 				);
 			}
 		}
+	}
+	for (const step of task.planSteps) {
+		if (
+			step.evidenceRequired &&
+			step.status === "done" &&
+			step.evidenceIds.length === 0 &&
+			!forceReason
+		) {
+			throw new TaskTransitionError(
+				`Plan step ${step.id} is done without step evidence`,
+			);
+		}
+		for (const evidenceId of step.evidenceIds) {
+			const stepEvidence = requireEvidence(task, evidenceId);
+			validateEvidenceQualityScore(stepEvidence);
+			if (stepEvidence.passed === false && !forceReason) {
+				throw new TaskTransitionError(
+					`Plan step ${step.id} has failing evidence ${evidenceId}`,
+				);
+			}
+		}
+	}
+	if (!forceReason) {
+		for (const evidenceItem of evidence)
+			validateEvidenceQualityScore(evidenceItem);
 	}
 }
 
@@ -882,6 +1014,68 @@ function validateEvidence(evidence: TaskEvidence): void {
 			"Passing evidence requires a verification level stronger than not_verified",
 		);
 	}
+	validateEvidenceQualityScore(evidence);
+	if (evidence.passed === true && containsVagueEvidence(evidence.summary)) {
+		throw new TaskTransitionError(
+			"Evidence summary is too vague for passing evidence",
+		);
+	}
+	if (evidence.type !== "note" && evidence.references.length === 0) {
+		throw new TaskTransitionError(
+			"Evidence requires at least one reference for traceability",
+		);
+	}
+}
+
+function normalizeEvidenceQuality(
+	quality: EvidenceQuality | undefined,
+	evidence: Omit<TaskEvidence, "taskId" | "createdAt" | "quality">,
+): EvidenceQuality {
+	const artifactRefs = quality?.artifactRefs ?? evidence.references ?? [];
+	return {
+		source: quality?.source?.trim() || evidence.type,
+		reproducible: quality?.reproducible ?? artifactRefs.length > 0,
+		verifier: quality?.verifier ?? "agent",
+		...(quality?.command ? { command: quality.command.trim() } : {}),
+		artifactRefs,
+		...(quality?.observedOutput
+			? { observedOutput: quality.observedOutput.trim() }
+			: {}),
+	};
+}
+
+function validateEvidenceQualityScore(evidence: TaskEvidence): void {
+	const issues = getEvidenceQualityIssues(evidence);
+	if (issues.length > 0) {
+		throw new TaskTransitionError(
+			`Evidence ${evidence.id} failed quality gate: ${issues.join("; ")}`,
+		);
+	}
+}
+
+function getEvidenceQualityIssues(evidence: TaskEvidence): string[] {
+	const issues: string[] = [];
+	if (!evidence.quality.source.trim()) issues.push("source is required");
+	if (!evidence.quality.reproducible)
+		issues.push("evidence must be reproducible");
+	if (evidence.quality.artifactRefs.length === 0)
+		issues.push("artifactRefs are required");
+	if (
+		(evidence.type === "command" ||
+			evidence.type === "test" ||
+			evidence.type === "dogfood") &&
+		!evidence.quality.observedOutput?.trim()
+	) {
+		issues.push("observedOutput is required for command/test/dogfood evidence");
+	}
+	if (evidence.type === "command" && !evidence.quality.command?.trim()) {
+		issues.push("command is required for command evidence");
+	}
+	return issues;
+}
+
+function containsVagueEvidence(value: string): boolean {
+	return VAGUE_EVIDENCE_PATTERNS.some((pattern) => pattern.test(value.trim()));
 }
 
 function findDuplicateEvidence(
