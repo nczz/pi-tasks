@@ -19,7 +19,24 @@ const createEvent: TaskEvent = {
 		"A very long task title that must be truncated in narrow status displays",
 	objective: "Test branch replay",
 	acceptanceCriteria: ["criterion"],
-	initialSteps: ["verify renderer"],
+	planSteps: [
+		{
+			text: "verify renderer",
+			expectedOutput: "Renderer output includes task contract",
+			criterionIds: ["T1-AC1"],
+			evidenceRequired: true,
+			allowedActions: ["render helper"],
+			decompositionStatus: "atomic",
+			granularityCheck: {
+				isAtomic: true,
+				reason: "Single render helper assertion",
+				canBeDoneInOneAgentAction: true,
+				hasSingleObservableOutput: true,
+				hasSingleVerificationMethod: true,
+				hasNoHiddenSubtasks: true,
+			},
+		},
+	],
 	activate: true,
 };
 
@@ -151,6 +168,7 @@ describe("store replay and render helpers", () => {
 		]).state;
 		const output = formatTaskFocus(state);
 		expect(output).toContain("Current step: T1-S1");
+		expect(output).toContain("Granularity: atomic");
 		expect(output).toContain("Expected output");
 		expect(output).toContain("Evidence: none (required)");
 	});

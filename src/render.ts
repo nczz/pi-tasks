@@ -89,7 +89,7 @@ export function formatTaskList(
 		);
 		const planSteps = (task.planSteps ?? []).map(
 			(step) =>
-				`  - ${step.id} step [${step.status}] ${step.text}; output: ${step.expectedOutput}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
+				`  - ${step.id} step [${step.status}/${step.decompositionStatus}] ${step.text}; output: ${step.expectedOutput}${step.parentStepId ? `; parent:${step.parentStepId}` : ""}; atomic:${step.granularityCheck.isAtomic}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
 		);
 		const decisions = task.decisions.map(
 			(decision) =>
@@ -132,6 +132,9 @@ export function formatTaskFocus(state: TaskState): string {
 		lines.push("Current step: none open");
 	} else {
 		lines.push(`Current step: ${step.id} [${step.status}] ${step.text}`);
+		lines.push(`Granularity: ${step.decompositionStatus}`);
+		lines.push(`Atomicity reason: ${step.granularityCheck.reason}`);
+		if (step.parentStepId) lines.push(`Parent step: ${step.parentStepId}`);
 		lines.push(`Expected output: ${step.expectedOutput}`);
 		lines.push(
 			`Evidence: ${step.evidenceIds.length ? step.evidenceIds.join(",") : "none"}${step.evidenceRequired ? " (required)" : ""}`,
@@ -141,6 +144,9 @@ export function formatTaskFocus(state: TaskState): string {
 		}
 		if (step.allowedActions.length > 0) {
 			lines.push(`Allowed actions: ${step.allowedActions.join(", ")}`);
+		}
+		if (step.decompositionStatus !== "atomic") {
+			lines.push(`Next allowed action: task_decompose ${step.id}`);
 		}
 	}
 	const gaps = getVerificationGaps(task);
@@ -158,6 +164,15 @@ export function getVerificationGaps(task: Task): string[] {
 		(step) => step.status !== "done" && step.status !== "skipped",
 	);
 	if (incompleteStep) gaps.push(`${incompleteStep.id} step pending`);
+	for (const step of task.planSteps ?? []) {
+		if (
+			step.status !== "done" &&
+			step.status !== "skipped" &&
+			step.decompositionStatus !== "atomic"
+		) {
+			gaps.push(`${step.id} needs breakdown`);
+		}
+	}
 	for (const step of task.planSteps ?? []) {
 		if (
 			step.evidenceRequired &&

@@ -23,6 +23,9 @@ Environment:
 - Installed-package session ID: `pi-tasks-release-installed-package`
 - Commercial contract session directory: `/private/tmp/pi-tasks-commercial-dogfood/sessions`
 - Commercial contract session ID: `pi-tasks-commercial-contract`
+- Recursive decomposition session directory: `/private/tmp/pi-tasks-decomposition-dogfood/sessions`
+- Recursive decomposition session ID: `pi-tasks-recursive-decomposition-step-evidence`
+- Installed decomposition tools session ID: `pi-tasks-installed-decomposition-tools`
 
 ## Passed Scenarios
 
@@ -51,6 +54,11 @@ Environment:
 - Confirmed `task_focus` returns the current active step contract before work proceeds.
 - Confirmed evidence-required steps reject `done` before linked evidence exists.
 - Confirmed `off_plan` activity without `scope_reason` is rejected, and `off_plan` with `scope_reason` is recorded as a warning.
+- Confirmed non-atomic steps reject `done` until recursively decomposed with `task_decompose`.
+- Confirmed `task_granularity_check` reports atomicity booleans and directs the agent to decomposition for coarse steps.
+- Confirmed decomposition replaces `T1-S1` with atomic child steps `T1-S1.1` and `T1-S1.2`.
+- Confirmed step-scoped evidence with `step_ids` prevents evidence for `T1-S1.1` from satisfying `T1-S1.2`, even when both share the same acceptance criterion.
+- Confirmed installed package runtime exposes `task_granularity_check` and `task_decompose`, and can replace an installed-package non-atomic step with child steps.
 
 ## Commands
 
@@ -140,6 +148,17 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-commercial-dogfood/session
   --session-id pi-tasks-commercial-contract \
   --name pi-tasks-commercial-contract \
   -p "Create one task using structured plan_steps, call task_focus, reject step done before evidence, record evidence, close steps, reject off_plan without scope_reason, record off_plan with scope_reason, complete, and list final evidence."
+```
+
+Recursive decomposition and step-scoped evidence scenario:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-decomposition-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_focus,task_granularity_check,task_decompose,task_update,task_evidence,task_complete,task_list \
+  --session-id pi-tasks-recursive-decomposition-step-evidence \
+  --name pi-tasks-recursive-decomposition-step-evidence \
+  -p "Create one non-atomic plan step, confirm task_focus and task_granularity_check show needs_breakdown, reject marking it done, decompose it into two atomic child steps that share one criterion, record evidence for only T1-S1.1 with step_ids, reject T1-S1.2 done before its own evidence, then record T1-S1.2 evidence, complete, and list final evidence."
 ```
 
 ## Package Gates

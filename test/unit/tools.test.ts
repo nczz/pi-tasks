@@ -96,6 +96,15 @@ describe("registered task tools", () => {
 						criterionIds: ["T1-AC1"],
 						evidenceRequired: true,
 						allowedActions: ["run unit harness"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single tool harness assertion",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
 					},
 				],
 				activate: true,
@@ -165,5 +174,95 @@ describe("registered task tools", () => {
 		const replayed = createTaskRuntimeStore();
 		replayed.replay(ctx.sessionManager.getBranch());
 		expect(replayed.getState().tasks.T1?.status).toBe("done");
+	});
+
+	it("decomposes a coarse step before execution", async () => {
+		const { tools, ctx, store } = createHarness();
+		const plan = requireTool(tools, "task_plan");
+		const check = requireTool(tools, "task_granularity_check");
+		const decompose = requireTool(tools, "task_decompose");
+		const update = requireTool(tools, "task_update");
+
+		await execute(
+			plan,
+			{
+				title: "Recursive breakdown",
+				objective: "Verify decomposition gate",
+				acceptance_criteria: ["Step is atomic before execution"],
+				plan_steps: [
+					{
+						text: "Implement release workflow",
+						expectedOutput: "Release workflow is verified",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["inspect", "build", "test"],
+						granularityCheck: {
+							isAtomic: false,
+							reason: "Contains multiple hidden verification subtasks",
+							canBeDoneInOneAgentAction: false,
+							hasSingleObservableOutput: false,
+							hasSingleVerificationMethod: false,
+							hasNoHiddenSubtasks: false,
+						},
+					},
+				],
+			},
+			ctx,
+		);
+		const checkResult = await execute(check, {}, ctx);
+		expect(checkResult.content[0]?.text).toContain("Next allowed action");
+		const rejected = await execute(
+			update,
+			{ task_id: "T1", step_id: "T1-S1", step_status: "done" },
+			ctx,
+		);
+		expect(rejected.isError).toBe(true);
+		expect(rejected.content[0]?.text).toContain("task_decompose");
+		await execute(
+			decompose,
+			{
+				task_id: "T1",
+				step_id: "T1-S1",
+				reason: "Split into atomic verification steps",
+				child_steps: [
+					{
+						text: "Run package dry-run",
+						expectedOutput: "npm pack dry-run succeeds",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["npm pack --dry-run"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single packaging command with one output",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+					{
+						text: "Record package dry-run evidence",
+						expectedOutput: "Evidence is attached to criterion",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["task_evidence"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single evidence recording action",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+				],
+			},
+			ctx,
+		);
+		expect(store.getState().tasks.T1?.planSteps[0]?.id).toBe("T1-S1.1");
+		expect(store.getState().tasks.T1?.planSteps[0]?.status).toBe("active");
+		expect(store.getState().tasks.T1?.currentStep).toBe("Run package dry-run");
 	});
 });

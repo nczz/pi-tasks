@@ -9,11 +9,14 @@
 - Real Pi dogfood evidence for task lifecycle, evidence-enforced completion, resume replay, blocked display, `/tasks`, `/quit`, and forked-session replay.
 - Release-hardening dogfood evidence for ordered-step misuse, duplicate evidence rejection, decision/blocker rendering, install, tarball import, and installed-package Pi smoke.
 - Commercial contract dogfood evidence for structured `plan_steps`, `task_focus`, evidence-required step completion, and scope drift warnings.
+- Recursive decomposition tools and tests for non-atomic step rejection, granularity checks, and child-step replacement.
 - Release process and dogfood checklist documents.
 
 ### Changed
 - `initial_steps` now become ordered plan steps; `task_update` must advance the current step in order and `task_complete` rejects open steps unless forced.
 - Added structured step contracts with expected output, linked criteria, required evidence, allowed actions, and the `task_focus` tool.
+- Added recursive decomposition gating with `task_granularity_check` and `task_decompose`; non-atomic steps cannot be marked done.
+- Added `task_evidence.step_ids` and narrowed automatic step evidence linking to avoid satisfying multiple child steps from one broad criterion match.
 - Evidence-required steps now reject `done` until linked evidence exists.
 - `task_update` can record `within_step`, `scope_change`, and `off_plan` activity; drift requires a reason and appears in task warnings.
 - Progress now derives upward from plan steps, satisfied criteria, and evidence so active tasks do not stay at 1% after verification work is complete.

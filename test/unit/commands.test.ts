@@ -18,7 +18,24 @@ const createEvent: TaskEvent = {
 	title: "Command test",
 	objective: "Verify /tasks",
 	acceptanceCriteria: ["command shows task"],
-	initialSteps: ["render command output"],
+	planSteps: [
+		{
+			text: "render command output",
+			expectedOutput: "/tasks command output includes task details",
+			criterionIds: ["T1-AC1"],
+			evidenceRequired: true,
+			allowedActions: ["run /tasks command"],
+			decompositionStatus: "atomic",
+			granularityCheck: {
+				isAtomic: true,
+				reason: "Single command render assertion",
+				canBeDoneInOneAgentAction: true,
+				hasSingleObservableOutput: true,
+				hasSingleVerificationMethod: true,
+				hasNoHiddenSubtasks: true,
+			},
+		},
+	],
 	activate: true,
 };
 

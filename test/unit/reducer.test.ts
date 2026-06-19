@@ -12,6 +12,15 @@ import {
 
 const now = "2026-06-18T00:00:00.000Z";
 
+const atomicCheck = {
+	isAtomic: true,
+	reason: "Single reducer edit with one unit-test verification",
+	canBeDoneInOneAgentAction: true,
+	hasSingleObservableOutput: true,
+	hasSingleVerificationMethod: true,
+	hasNoHiddenSubtasks: true,
+};
+
 function created(taskId = "T1", activate = true): TaskEvent {
 	return {
 		version: 1,
@@ -23,8 +32,41 @@ function created(taskId = "T1", activate = true): TaskEvent {
 		title: "Build MVP",
 		objective: "Implement pi-tasks MVP",
 		acceptanceCriteria: ["model exists", "completion requires evidence"],
-		initialSteps: ["write reducer"],
+		planSteps: [
+			{
+				text: "write reducer",
+				expectedOutput: "Reducer transition is implemented",
+				criterionIds: [`${taskId}-AC1`, `${taskId}-AC2`],
+				evidenceRequired: true,
+				allowedActions: ["edit reducer", "run unit test"],
+				decompositionStatus: "atomic",
+				granularityCheck: atomicCheck,
+			},
+		],
 		activate,
+	};
+}
+
+function coarseCreated(): TaskEvent {
+	return {
+		...created(),
+		planSteps: [
+			{
+				text: "Implement release workflow",
+				expectedOutput: "Release workflow is complete",
+				criterionIds: ["T1-AC1", "T1-AC2"],
+				evidenceRequired: true,
+				allowedActions: ["inspect", "edit", "test"],
+				granularityCheck: {
+					isAtomic: false,
+					reason: "Contains build, package, install, and dogfood subtasks",
+					canBeDoneInOneAgentAction: false,
+					hasSingleObservableOutput: false,
+					hasSingleVerificationMethod: false,
+					hasNoHiddenSubtasks: false,
+				},
+			},
+		],
 	};
 }
 
@@ -89,6 +131,39 @@ function evidenceThenStepDone(): TaskEvent[] {
 	return [evidence(), stepDone()];
 }
 
+function decompose(): TaskEvent {
+	return {
+		version: 1,
+		id: "T1-decompose",
+		type: "task.steps_decomposed",
+		taskId: "T1",
+		createdAt: now,
+		source: "tool",
+		parentStepId: "T1-S1",
+		reason: "Split release workflow into atomic verification steps",
+		childSteps: [
+			{
+				text: "Run package dry-run",
+				expectedOutput: "npm pack dry-run completes",
+				criterionIds: ["T1-AC1"],
+				evidenceRequired: true,
+				allowedActions: ["npm pack --dry-run"],
+				decompositionStatus: "atomic",
+				granularityCheck: atomicCheck,
+			},
+			{
+				text: "Run installed package smoke",
+				expectedOutput: "Installed package smoke completes",
+				criterionIds: ["T1-AC2"],
+				evidenceRequired: true,
+				allowedActions: ["pi installed smoke"],
+				decompositionStatus: "atomic",
+				granularityCheck: atomicCheck,
+			},
+		],
+	};
+}
+
 function apply(events: TaskEvent[]): TaskState {
 	return replayTaskEvents(events);
 }
@@ -107,9 +182,82 @@ describe("task reducer", () => {
 		expect(() =>
 			reduceTaskState(createEmptyState(), {
 				...created(),
-				initialSteps: [],
+				planSteps: [],
 			}),
 		).toThrow("At least one ordered plan step is required");
+	});
+
+	it("requires non-atomic steps to be decomposed before completion", () => {
+		expect(() => apply([coarseCreated(), evidence(), stepDone()])).toThrow(
+			"use task_decompose until it is atomic",
+		);
+		const state = apply([coarseCreated(), decompose()]);
+		expect(state.tasks.T1.planSteps.map((step) => step.id)).toEqual([
+			"T1-S1.1",
+			"T1-S1.2",
+		]);
+		expect(state.tasks.T1.planSteps[0]?.status).toBe("active");
+		expect(state.tasks.T1.planSteps[0]?.parentStepId).toBe("T1-S1");
+		expect(state.tasks.T1.currentStep).toBe("Run package dry-run");
+	});
+
+	it("does not auto-link criterion evidence to multiple matching child steps", () => {
+		const sharedCriterionDecompose: TaskEvent = {
+			...decompose(),
+			childSteps: [
+				{
+					text: "Run package dry-run",
+					expectedOutput: "npm pack dry-run completes",
+					criterionIds: ["T1-AC1"],
+					evidenceRequired: true,
+					allowedActions: ["npm pack --dry-run"],
+					decompositionStatus: "atomic",
+					granularityCheck: atomicCheck,
+				},
+				{
+					text: "Run package import smoke",
+					expectedOutput: "package import smoke completes",
+					criterionIds: ["T1-AC1"],
+					evidenceRequired: true,
+					allowedActions: ["node import smoke"],
+					decompositionStatus: "atomic",
+					granularityCheck: atomicCheck,
+				},
+			],
+		};
+		const broadEvidence: TaskEvent = {
+			...evidence(),
+			criterionIds: ["T1-AC1"],
+		};
+		const stepEvidence: TaskEvent = {
+			...evidence({
+				id: "T1-evidence-step",
+				evidence: {
+					id: "E2",
+					type: "test",
+					level: "unit_test",
+					summary: "pack dry-run passed",
+					passed: true,
+					references: ["npm pack --dry-run"],
+				},
+			}),
+			criterionIds: ["T1-AC1"],
+			stepIds: ["T1-S1.1"],
+		};
+		const broadState = apply([
+			coarseCreated(),
+			sharedCriterionDecompose,
+			broadEvidence,
+		]);
+		expect(broadState.tasks.T1.planSteps[0]?.evidenceIds).toEqual([]);
+		expect(broadState.tasks.T1.planSteps[1]?.evidenceIds).toEqual([]);
+		const linkedState = apply([
+			coarseCreated(),
+			sharedCriterionDecompose,
+			stepEvidence,
+		]);
+		expect(linkedState.tasks.T1.planSteps[0]?.evidenceIds).toEqual(["E2"]);
+		expect(linkedState.tasks.T1.planSteps[1]?.evidenceIds).toEqual([]);
 	});
 
 	it("keeps only one active task by default", () => {

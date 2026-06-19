@@ -227,6 +227,22 @@ export interface TaskStep {
 	text: string;
 	expectedOutput: string;
 	status: "pending" | "active" | "done" | "skipped";
+	decompositionStatus:
+		| "needs_breakdown"
+		| "breaking_down"
+		| "atomic"
+		| "deferred";
+	granularityCheck: {
+		isAtomic: boolean;
+		reason: string;
+		canBeDoneInOneAgentAction: boolean;
+		hasSingleObservableOutput: boolean;
+		hasSingleVerificationMethod: boolean;
+		hasNoHiddenSubtasks: boolean;
+	};
+	parentStepId?: string;
+	childStepIds: string[];
+	depth: number;
 	evidenceIds: string[];
 	criterionIds: string[];
 	evidenceRequired: boolean;
@@ -241,10 +257,14 @@ Rules:
 
 - `initial_steps` become ordered task steps with IDs such as `T1-S1`.
 - Structured `plan_steps` should provide expected output, linked criteria, evidence requirement, and allowed actions.
+- Structured `plan_steps` should also include a granularity check. A step is executable only when it is `atomic`.
 - The first step is active when the task is activated.
 - Agents must complete or skip the current open step before advancing.
+- Non-atomic steps must be recursively decomposed with `task_decompose` before they can be marked `done`.
 - Evidence-required steps cannot be marked `done` until linked evidence exists.
 - Skipping a step requires a reason or note.
+- Decomposition replaces a parent step with ordered child steps such as `T1-S1.1` and preserves parent traceability through `parentStepId`.
+- Step evidence should be linked with `task_evidence.step_ids`; criterion-only evidence is auto-linked to a step only when exactly one step matches the criterion.
 
 ### 5.8 Task
 
@@ -399,6 +419,7 @@ Behavior:
 - creates task event,
 - converts `initial_steps` or structured `plan_steps` to ordered plan steps,
 - rejects task creation without at least one ordered plan step,
+- treats steps without an atomic granularity check as requiring breakdown before execution,
 - optionally activates it,
 - if activating, deactivates previous active task by moving it to `pending` unless explicit parallel support exists,
 - returns task summary and next action.
@@ -417,9 +438,49 @@ Behavior:
 
 - no mutation,
 - returns active task, current open step, expected output, linked criteria, required evidence, allowed actions, gaps, and drift warnings,
+- returns the granularity status and next allowed action when the current step still needs breakdown,
 - should be called before implementation, verification, or step completion work.
 
-### 8.3 `task_list`
+### 8.3 `task_granularity_check`
+
+Purpose:
+
+Report whether the current or specified step is atomic enough to execute.
+
+Parameters:
+
+- `task_id`
+- `step_id`
+
+Behavior:
+
+- no mutation,
+- returns the step atomicity booleans and rationale,
+- tells the agent to call `task_decompose` when the step is not atomic.
+
+### 8.4 `task_decompose`
+
+Purpose:
+
+Recursively replace a non-atomic step with smaller child steps.
+
+Parameters:
+
+- `task_id`
+- `step_id`
+- `reason`
+- `child_steps`
+
+Behavior:
+
+- appends a decomposition event,
+- requires at least two child steps,
+- validates each child step's expected output, criteria links, evidence requirement, allowed actions, and granularity check,
+- rejects decomposition beyond the maximum supported depth,
+- replaces the parent step with ordered child steps such as `T1-S1.1`,
+- keeps the first child in the parent's current status so focus can continue.
+
+### 8.5 `task_list`
 
 Purpose:
 
@@ -438,7 +499,7 @@ Behavior:
 - returns active task first,
 - includes blockers and verification gaps.
 
-### 8.4 `task_update`
+### 8.6 `task_update`
 
 Purpose:
 
@@ -464,13 +525,14 @@ Behavior:
 - validates transition,
 - rejects attempts to update a later plan step before the current open step,
 - advances to the next plan step after the current step is marked `done` or `skipped`,
+- rejects `done` for non-atomic steps; the agent must call `task_decompose` first,
 - rejects `done` for evidence-required steps without linked evidence,
 - rejects skipping a plan step without a reason or note,
 - records warnings for `scope_change` or `off_plan` activity and requires `scope_reason`,
 - appends event,
 - updates widget/status.
 
-### 8.5 `task_evidence`
+### 8.7 `task_evidence`
 
 Purpose:
 
@@ -485,14 +547,16 @@ Parameters:
 - `passed`
 - `references`
 - `criterion_ids`
+- `step_ids`
 
 Behavior:
 
 - appends evidence,
+- links evidence to explicit step IDs when provided,
 - marks referenced criteria satisfied only when `passed: true`,
 - never marks task done by itself.
 
-### 8.6 `task_decision`
+### 8.8 `task_decision`
 
 Purpose:
 
@@ -512,7 +576,7 @@ Behavior:
 - appends decision,
 - visible in task details.
 
-### 8.7 `task_complete`
+### 8.9 `task_complete`
 
 Purpose:
 
@@ -770,6 +834,7 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - pure reducer and transition validation in `src/reducer.ts`,
 - ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
 - structured step contracts with expected output, criterion links, evidence requirement, and allowed actions,
+- recursive decomposition gate with `task_granularity_check` and `task_decompose`,
 - `task_focus` current-step guidance before action,
 - scope drift recording for `scope_change` and `off_plan` activity,
 - duplicate evidence deduplication in tool execution and replay,
@@ -797,6 +862,7 @@ Verified with real Pi dogfood:
 
 - task creation, ordered step update, evidence rejection, evidence attachment, completion, and listing,
 - structured `plan_steps`, current-step focus, step-level evidence requirement, and scope drift rejection/warning,
+- non-atomic step rejection and decomposition into atomic child steps,
 - adversarial rejection of out-of-order step update, premature completion, duplicate evidence, and skip-without-reason,
 - same-session resume from persisted `pi-tasks:event` custom entries,
 - blocked task display with blocker source, reason, unblock condition, resolved blocker audit trail, and explicit user decision,

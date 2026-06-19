@@ -50,6 +50,12 @@ const VERIFICATION_LEVELS = [
 	"pi_dogfood",
 	"external_unverified",
 ] as const;
+const GRANULARITY_STATUSES = [
+	"needs_breakdown",
+	"breaking_down",
+	"atomic",
+	"deferred",
+] as const;
 
 interface TaskPlanParams extends Record<string, unknown> {
 	title: string;
@@ -98,6 +104,7 @@ interface TaskEvidenceParams extends Record<string, unknown> {
 	passed: "true" | "false" | "unknown";
 	references?: string[];
 	criterion_ids?: string[];
+	step_ids?: string[];
 }
 
 interface TaskDecisionParams extends Record<string, unknown> {
@@ -122,6 +129,18 @@ interface TaskCompleteParams extends Record<string, unknown> {
 	force_with_reason?: string;
 }
 
+interface TaskGranularityCheckParams extends Record<string, unknown> {
+	task_id?: string;
+	step_id?: string;
+}
+
+interface TaskDecomposeParams extends Record<string, unknown> {
+	task_id: string;
+	step_id: string;
+	reason: string;
+	child_steps: TaskStepInput[];
+}
+
 export function registerTaskTools(
 	pi: ExtensionAPI,
 	store: TaskRuntimeStore,
@@ -137,6 +156,7 @@ export function registerTaskTools(
 		promptGuidelines: [
 			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
 			"Prefer plan_steps with expectedOutput, criterionIds, evidenceRequired, and allowedActions for commercial-quality work.",
+			"Mark a plan step atomic only when its granularityCheck proves it has one action, one observable output, one verification method, and no hidden subtasks.",
 			"Acceptance criteria must be concrete enough to verify with evidence before completion.",
 			"Activate only one task unless the user explicitly asks for parallel work.",
 		],
@@ -157,6 +177,8 @@ export function registerTaskTools(
 						criterionIds: Type.Optional(Type.Array(Type.String())),
 						evidenceRequired: Type.Optional(Type.Boolean()),
 						allowedActions: Type.Optional(Type.Array(Type.String())),
+						decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
+						granularityCheck: Type.Optional(granularityCheckSchema()),
 					}),
 				),
 			),
@@ -197,12 +219,107 @@ export function registerTaskTools(
 			"Inspect the current pi-tasks focus before acting, then work only on the active step",
 		promptGuidelines: [
 			"Call task_focus before implementation, verification, or step completion work.",
+			"If Granularity is not atomic, use task_decompose before doing implementation work.",
 			"If intended work does not match the active step, record scope_change or off_plan with task_update first.",
 			"Use task_evidence before marking an evidence-required step done.",
 		],
 		parameters: Type.Object({}),
 		execute: async () =>
 			textResult(formatTaskFocus(store.getState()), store.getState()),
+	});
+
+	pi.registerTool<TaskGranularityCheckParams>({
+		name: "task_granularity_check",
+		label: "Task Granularity Check",
+		description:
+			"Report whether a task step is atomic enough to execute or must be recursively decomposed.",
+		promptSnippet:
+			"Check whether the current pi-tasks step is atomic before implementation",
+		promptGuidelines: [
+			"Use this before implementation when task_focus shows a non-atomic step.",
+			"Atomic means one agent action, one observable output, one verification method, and no hidden subtasks.",
+			"If the step is not atomic, call task_decompose with smaller child steps.",
+		],
+		parameters: Type.Object({
+			task_id: Type.Optional(Type.String()),
+			step_id: Type.Optional(Type.String()),
+		}),
+		execute: async (_toolCallId, params) => {
+			const state = store.getState();
+			const task = selectTask(state, params.task_id);
+			if (!task) {
+				return { ...textResult("Error: no active task", state), isError: true };
+			}
+			const step = selectStep(task, params.step_id);
+			if (!step) {
+				return {
+					...textResult("Error: no matching open step", state),
+					isError: true,
+				};
+			}
+			const check = step.granularityCheck;
+			return textResult(
+				[
+					`Step: ${step.id} ${step.text}`,
+					`Granularity: ${step.decompositionStatus}`,
+					`Atomic: ${check.isAtomic}`,
+					`One agent action: ${check.canBeDoneInOneAgentAction}`,
+					`Single observable output: ${check.hasSingleObservableOutput}`,
+					`Single verification method: ${check.hasSingleVerificationMethod}`,
+					`No hidden subtasks: ${check.hasNoHiddenSubtasks}`,
+					`Reason: ${check.reason}`,
+					step.decompositionStatus === "atomic"
+						? "Next allowed action: task_focus or execution work"
+						: `Next allowed action: task_decompose ${step.id}`,
+				].join("\n"),
+				state,
+			);
+		},
+	});
+
+	pi.registerTool<TaskDecomposeParams>({
+		name: "task_decompose",
+		label: "Task Decompose",
+		description:
+			"Replace a non-atomic plan step with smaller child steps until each executable step is atomic.",
+		promptSnippet:
+			"Recursively break down a non-atomic pi-tasks step into atomic child steps",
+		promptGuidelines: [
+			"Use task_decompose when task_focus or task_granularity_check says the current step needs breakdown.",
+			"Each child step must include expectedOutput, criterionIds, evidenceRequired, allowedActions, and granularityCheck.",
+			"Only mark a child atomic when it truly has one action, one output, one verification method, and no hidden subtasks.",
+			"Do not use task_decompose for execution evidence; record execution evidence with task_evidence.",
+		],
+		parameters: Type.Object({
+			task_id: Type.String(),
+			step_id: Type.String(),
+			reason: Type.String(),
+			child_steps: Type.Array(
+				Type.Object({
+					text: Type.String(),
+					expectedOutput: Type.String(),
+					criterionIds: Type.Optional(Type.Array(Type.String())),
+					evidenceRequired: Type.Optional(Type.Boolean()),
+					allowedActions: Type.Optional(Type.Array(Type.String())),
+					decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
+					granularityCheck: Type.Optional(granularityCheckSchema()),
+				}),
+			),
+		}),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			const event = baseEvent("task.steps_decomposed", params.task_id, ctx, {
+				parentStepId: params.step_id,
+				childSteps: params.child_steps,
+				reason: params.reason,
+			});
+			return appendAndReport(
+				pi,
+				store,
+				ctx,
+				event,
+				`Decomposed step ${params.step_id} for task ${params.task_id}`,
+			);
+		},
 	});
 
 	pi.registerTool<TaskListParams>({
@@ -242,6 +359,7 @@ export function registerTaskTools(
 			"Update pi-tasks progress, current ordered step, next action, status, or blocker details",
 		promptGuidelines: [
 			"Use step_id with step_status=done when the current planned step is finished.",
+			"Only atomic steps can be marked done; use task_decompose first if a step still needs breakdown.",
 			"Evidence-required steps need linked evidence before step_status=done.",
 			"Do not skip ahead; ordered plan steps must be completed or skipped in the displayed order.",
 			"Use activity with scope=within_step, scope_change, or off_plan to document meaningful work and drift.",
@@ -326,6 +444,7 @@ export function registerTaskTools(
 			"Use task_evidence for tests, commands, reviews, files, dogfood, or explicit user acceptance.",
 			"Passing non-note evidence must use a verification level stronger than not_verified.",
 			"Attach criterion IDs when evidence proves specific acceptance criteria.",
+			"Attach step_ids when evidence proves specific atomic steps, especially when multiple steps share the same criterion.",
 		],
 		parameters: Type.Object({
 			task_id: Type.String(),
@@ -335,6 +454,7 @@ export function registerTaskTools(
 			passed: Type.Enum(["true", "false", "unknown"]),
 			references: Type.Optional(Type.Array(Type.String())),
 			criterion_ids: Type.Optional(Type.Array(Type.String())),
+			step_ids: Type.Optional(Type.Array(Type.String())),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const duplicate = findDuplicateEvidenceForParams(
@@ -361,6 +481,7 @@ export function registerTaskTools(
 					references: params.references ?? [],
 				},
 				...(params.criterion_ids ? { criterionIds: params.criterion_ids } : {}),
+				...(params.step_ids ? { stepIds: params.step_ids } : {}),
 			});
 			const success = duplicate
 				? `Linked existing evidence ${duplicate.id} for task ${params.task_id}`
@@ -461,6 +582,17 @@ export function registerTaskTools(
 	});
 }
 
+function granularityCheckSchema() {
+	return Type.Object({
+		isAtomic: Type.Boolean(),
+		reason: Type.String(),
+		canBeDoneInOneAgentAction: Type.Boolean(),
+		hasSingleObservableOutput: Type.Boolean(),
+		hasSingleVerificationMethod: Type.Boolean(),
+		hasNoHiddenSubtasks: Type.Boolean(),
+	});
+}
+
 function appendAndReport(
 	pi: ExtensionAPI,
 	store: TaskRuntimeStore,
@@ -485,6 +617,21 @@ function appendAndReport(
 			isError: true,
 		};
 	}
+}
+
+function selectTask(state: TaskState, taskId?: string): Task | undefined {
+	if (taskId) return state.tasks[taskId];
+	return state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
+}
+
+function selectStep(
+	task: Task,
+	stepId?: string,
+): Task["planSteps"][number] | undefined {
+	if (stepId) return task.planSteps.find((step) => step.id === stepId);
+	return task.planSteps.find(
+		(step) => step.status !== "done" && step.status !== "skipped",
+	);
 }
 
 function baseEvent<TType extends TaskEvent["type"]>(
@@ -543,11 +690,17 @@ function criteriaAlreadyLinked(
 ): boolean {
 	const task = state.tasks[params.task_id];
 	if (!task) return false;
-	return (params.criterion_ids ?? []).every((criterionId) =>
+	const criteriaLinked = (params.criterion_ids ?? []).every((criterionId) =>
 		task.acceptanceCriteria
 			.find((criterion) => criterion.id === criterionId)
 			?.evidenceIds.includes(evidence.id),
 	);
+	const stepsLinked = (params.step_ids ?? []).every((stepId) =>
+		task.planSteps
+			.find((step) => step.id === stepId)
+			?.evidenceIds.includes(evidence.id),
+	);
+	return criteriaLinked && stepsLinked;
 }
 
 function normalizedReferences(references: string[]): string {

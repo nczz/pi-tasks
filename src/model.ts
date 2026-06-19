@@ -10,6 +10,11 @@ export type TaskStatus =
 	| "cancelled";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
 export type TaskStepStatus = "pending" | "active" | "done" | "skipped";
+export type TaskStepGranularityStatus =
+	| "needs_breakdown"
+	| "breaking_down"
+	| "atomic"
+	| "deferred";
 
 export type VerificationLevel =
 	| "not_verified"
@@ -78,6 +83,11 @@ export interface TaskStep {
 	text: string;
 	expectedOutput: string;
 	status: TaskStepStatus;
+	decompositionStatus: TaskStepGranularityStatus;
+	granularityCheck: TaskGranularityCheck;
+	parentStepId?: string;
+	childStepIds: string[];
+	depth: number;
 	evidenceIds: string[];
 	criterionIds: string[];
 	evidenceRequired: boolean;
@@ -93,6 +103,17 @@ export interface TaskStepInput {
 	criterionIds?: string[];
 	evidenceRequired?: boolean;
 	allowedActions?: string[];
+	decompositionStatus?: TaskStepGranularityStatus;
+	granularityCheck?: TaskGranularityCheck;
+}
+
+export interface TaskGranularityCheck {
+	isAtomic: boolean;
+	reason: string;
+	canBeDoneInOneAgentAction: boolean;
+	hasSingleObservableOutput: boolean;
+	hasSingleVerificationMethod: boolean;
+	hasNoHiddenSubtasks: boolean;
 }
 
 export interface Task {
@@ -172,10 +193,18 @@ export interface TaskUpdatedEvent extends TaskEventBase {
 	reason?: string;
 }
 
+export interface TaskStepsDecomposedEvent extends TaskEventBase {
+	type: "task.steps_decomposed";
+	parentStepId: string;
+	childSteps: TaskStepInput[];
+	reason: string;
+}
+
 export interface TaskEvidenceAddedEvent extends TaskEventBase {
 	type: "task.evidence_added";
 	evidence: Omit<TaskEvidence, "taskId" | "createdAt">;
 	criterionIds?: string[];
+	stepIds?: string[];
 }
 
 export interface TaskDecisionRecordedEvent extends TaskEventBase {
@@ -210,6 +239,7 @@ export interface TaskSnapshotEvent extends TaskEventBase {
 export type TaskEvent =
 	| TaskCreatedEvent
 	| TaskUpdatedEvent
+	| TaskStepsDecomposedEvent
 	| TaskEvidenceAddedEvent
 	| TaskDecisionRecordedEvent
 	| TaskCompletedEvent

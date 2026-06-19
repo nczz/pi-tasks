@@ -4,6 +4,7 @@ import {
 	type Task,
 	type TaskEvent,
 	type TaskEvidence,
+	type TaskGranularityCheck,
 	type TaskState,
 	type TaskStatus,
 	type TaskStep,
@@ -11,6 +12,7 @@ import {
 } from "./model.ts";
 
 const TERMINAL_STATUSES: TaskStatus[] = ["done", "cancelled"];
+const MAX_DECOMPOSITION_DEPTH = 4;
 
 export class TaskTransitionError extends Error {
 	constructor(message: string) {
@@ -43,6 +45,8 @@ function applyEvent(state: TaskState, event: TaskEvent): TaskState {
 			return createTask(state, event);
 		case "task.updated":
 			return updateTask(state, event);
+		case "task.steps_decomposed":
+			return decomposeStep(state, event);
 		case "task.evidence_added":
 			return addEvidence(state, event);
 		case "task.decision_recorded":
@@ -132,6 +136,81 @@ function createTask(
 	return state;
 }
 
+function decomposeStep(
+	state: TaskState,
+	event: Extract<TaskEvent, { type: "task.steps_decomposed" }>,
+): TaskState {
+	const task = requireTask(state, event.taskId);
+	if (!event.reason.trim())
+		throw new TaskTransitionError("Decomposition reason is required");
+	if (event.childSteps.length < 2) {
+		throw new TaskTransitionError(
+			"Decomposition requires at least two child steps",
+		);
+	}
+	const parentIndex = task.planSteps.findIndex(
+		(step) => step.id === event.parentStepId,
+	);
+	if (parentIndex === -1) {
+		throw new TaskTransitionError(`Plan step ${event.parentStepId} not found`);
+	}
+	const parent = task.planSteps[parentIndex];
+	if (!parent) {
+		throw new TaskTransitionError(`Plan step ${event.parentStepId} not found`);
+	}
+	if (parent.status === "done" || parent.status === "skipped") {
+		throw new TaskTransitionError(
+			`Plan step ${parent.id} is already closed and cannot be decomposed`,
+		);
+	}
+	if (parent.depth >= MAX_DECOMPOSITION_DEPTH) {
+		throw new TaskTransitionError(
+			`Plan step ${parent.id} reached maximum decomposition depth ${MAX_DECOMPOSITION_DEPTH}`,
+		);
+	}
+	const children = createPlanSteps(
+		task.id,
+		event.childSteps,
+		undefined,
+		task.acceptanceCriteria.map((criterion) => criterion.id),
+		event.createdAt,
+		false,
+		{
+			parentStepId: parent.id,
+			parentStatus: parent.status,
+			startIndex: 1,
+			depth: parent.depth + 1,
+			idPrefix: parent.id,
+		},
+	);
+	const firstChild = children[0];
+	if (!firstChild) {
+		throw new TaskTransitionError("Decomposition produced no child steps");
+	}
+	firstChild.status = parent.status;
+	if (parent.startedAt) firstChild.startedAt = parent.startedAt;
+	parent.childStepIds = children.map((child) => child.id);
+	parent.decompositionStatus = "breaking_down";
+	task.planSteps.splice(parentIndex, 1, ...children);
+	task.warnings.push(
+		`decomposed ${parent.id}: ${event.reason.trim()} -> ${children.map((child) => child.id).join(",")}`,
+	);
+	const activeStep = getCurrentOpenStep(task);
+	if (activeStep) {
+		task.currentStep = activeStep.text;
+		task.nextAction =
+			activeStep.decompositionStatus === "atomic"
+				? activeStep.text
+				: `Break down ${activeStep.id}`;
+	} else {
+		delete task.currentStep;
+		delete task.nextAction;
+	}
+	recalculateProgress(task);
+	task.updatedAt = event.createdAt;
+	return state;
+}
+
 function updateTask(
 	state: TaskState,
 	event: Extract<TaskEvent, { type: "task.updated" }>,
@@ -186,14 +265,20 @@ function addEvidence(
 	const duplicate = findDuplicateEvidence(task, evidence);
 	if (duplicate) {
 		linkEvidenceToCriteria(task, duplicate, event.criterionIds ?? []);
-		linkEvidenceToMatchingSteps(task, duplicate, event.criterionIds ?? []);
+		linkEvidenceToSteps(task, duplicate, event.stepIds ?? []);
+		if (!event.stepIds || event.stepIds.length === 0) {
+			linkEvidenceToMatchingSteps(task, duplicate, event.criterionIds ?? []);
+		}
 		recalculateProgress(task);
 		task.updatedAt = event.createdAt;
 		return state;
 	}
 	task.evidence.push(evidence);
 	linkEvidenceToCriteria(task, evidence, event.criterionIds ?? []);
-	linkEvidenceToMatchingSteps(task, evidence, event.criterionIds ?? []);
+	linkEvidenceToSteps(task, evidence, event.stepIds ?? []);
+	if (!event.stepIds || event.stepIds.length === 0) {
+		linkEvidenceToMatchingSteps(task, evidence, event.criterionIds ?? []);
+	}
 	recalculateProgress(task);
 	task.updatedAt = event.createdAt;
 	return state;
@@ -222,14 +307,23 @@ function linkEvidenceToMatchingSteps(
 	criterionIds: string[],
 ): void {
 	if (criterionIds.length === 0) return;
-	for (const step of task.planSteps) {
-		if (
-			step.criterionIds.some((criterionId) =>
-				criterionIds.includes(criterionId),
-			)
-		) {
-			step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
-		}
+	const matchingSteps = task.planSteps.filter((step) =>
+		step.criterionIds.some((criterionId) => criterionIds.includes(criterionId)),
+	);
+	if (matchingSteps.length === 1) {
+		const step = matchingSteps[0];
+		if (step) step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
+	}
+}
+
+function linkEvidenceToSteps(
+	task: Task,
+	evidence: TaskEvidence,
+	stepIds: string[],
+): void {
+	for (const stepId of stepIds) {
+		const step = requireStep(task, stepId);
+		step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
 	}
 }
 
@@ -325,6 +419,13 @@ function createPlanSteps(
 	criterionIds: string[],
 	createdAt: string,
 	activate: boolean,
+	options: {
+		parentStepId?: string;
+		parentStatus?: TaskStep["status"];
+		startIndex?: number;
+		depth?: number;
+		idPrefix?: string;
+	} = {},
 ): TaskStep[] {
 	const steps =
 		planSteps ??
@@ -356,19 +457,119 @@ function createPlanSteps(
 				);
 			}
 		}
+		const granularityCheck = normalizeGranularityCheck(step);
+		const decompositionStatus =
+			step.decompositionStatus ??
+			(granularityCheck.isAtomic ? "atomic" : "needs_breakdown");
+		validateGranularityContract(
+			{
+				...step,
+				text,
+				expectedOutput,
+				criterionIds: linkedCriteria,
+				decompositionStatus,
+				granularityCheck,
+				allowedActions: step.allowedActions ?? [],
+				evidenceRequired: step.evidenceRequired ?? true,
+			},
+			index,
+		);
+		const status =
+			index === 0 && (activate || options.parentStatus)
+				? (options.parentStatus ?? "active")
+				: "pending";
+		const idPrefix = options.idPrefix ?? taskId;
+		const stepNumber = (options.startIndex ?? 1) + index;
 		return {
-			id: `${taskId}-S${index + 1}`,
+			id: options.idPrefix
+				? `${idPrefix}.${stepNumber}`
+				: `${taskId}-S${stepNumber}`,
 			taskId,
 			text,
 			expectedOutput,
-			status: index === 0 && activate ? "active" : "pending",
+			status,
+			decompositionStatus,
+			granularityCheck,
+			...(options.parentStepId ? { parentStepId: options.parentStepId } : {}),
+			childStepIds: [],
+			depth: options.depth ?? 0,
 			evidenceIds: [],
 			criterionIds: linkedCriteria,
 			evidenceRequired: step.evidenceRequired ?? true,
 			allowedActions: step.allowedActions ?? [],
-			...(index === 0 && activate ? { startedAt: createdAt } : {}),
+			...(status === "active" ? { startedAt: createdAt } : {}),
 		};
 	});
+}
+
+function normalizeGranularityCheck(step: TaskStepInput): TaskGranularityCheck {
+	if (step.granularityCheck) {
+		return {
+			isAtomic: step.granularityCheck.isAtomic,
+			reason: step.granularityCheck.reason.trim(),
+			canBeDoneInOneAgentAction:
+				step.granularityCheck.canBeDoneInOneAgentAction,
+			hasSingleObservableOutput:
+				step.granularityCheck.hasSingleObservableOutput,
+			hasSingleVerificationMethod:
+				step.granularityCheck.hasSingleVerificationMethod,
+			hasNoHiddenSubtasks: step.granularityCheck.hasNoHiddenSubtasks,
+		};
+	}
+	return {
+		isAtomic: false,
+		reason: "Granularity has not been checked yet",
+		canBeDoneInOneAgentAction: false,
+		hasSingleObservableOutput: false,
+		hasSingleVerificationMethod: false,
+		hasNoHiddenSubtasks: false,
+	};
+}
+
+function validateGranularityContract(
+	step: TaskStepInput & {
+		decompositionStatus: TaskStep["decompositionStatus"];
+		granularityCheck: TaskGranularityCheck;
+		criterionIds: string[];
+		allowedActions: string[];
+		evidenceRequired: boolean;
+	},
+	index: number,
+): void {
+	if (!step.granularityCheck.reason.trim()) {
+		throw new TaskTransitionError(
+			`Plan step ${index + 1} granularityCheck.reason is required`,
+		);
+	}
+	if (step.decompositionStatus === "atomic") {
+		const check = step.granularityCheck;
+		if (
+			!check.isAtomic ||
+			!check.canBeDoneInOneAgentAction ||
+			!check.hasSingleObservableOutput ||
+			!check.hasSingleVerificationMethod ||
+			!check.hasNoHiddenSubtasks
+		) {
+			throw new TaskTransitionError(
+				`Atomic plan step ${index + 1} failed granularity check`,
+			);
+		}
+		if (step.criterionIds.length === 0) {
+			throw new TaskTransitionError(
+				`Atomic plan step ${index + 1} must link at least one criterion`,
+			);
+		}
+		if (step.allowedActions.length === 0) {
+			throw new TaskTransitionError(
+				`Atomic plan step ${index + 1} must declare allowedActions`,
+			);
+		}
+		if (!step.evidenceRequired) {
+			throw new TaskTransitionError(
+				`Atomic plan step ${index + 1} must require evidence`,
+			);
+		}
+	}
 }
 
 function updatePlanStep(
@@ -391,6 +592,14 @@ function updatePlanStep(
 	}
 	if (event.stepStatus === "pending") {
 		throw new TaskTransitionError("Plan steps cannot move back to pending");
+	}
+	if (
+		event.stepStatus === "done" &&
+		currentStep.decompositionStatus !== "atomic"
+	) {
+		throw new TaskTransitionError(
+			`Plan step ${currentStep.id} is ${currentStep.decompositionStatus}; use task_decompose until it is atomic before done`,
+		);
 	}
 	if (
 		event.stepStatus === "skipped" &&
@@ -732,6 +941,12 @@ function requireEvidence(task: Task, evidenceId: string): TaskEvidence {
 	if (!evidence)
 		throw new TaskTransitionError(`Evidence ${evidenceId} not found`);
 	return evidence;
+}
+
+function requireStep(task: Task, stepId: string): TaskStep {
+	const step = task.planSteps.find((item) => item.id === stepId);
+	if (!step) throw new TaskTransitionError(`Plan step ${stepId} not found`);
+	return step;
 }
 
 function clampProgress(progress: number): number {
