@@ -89,7 +89,7 @@ export function formatTaskList(
 		);
 		const planSteps = (task.planSteps ?? []).map(
 			(step) =>
-				`  - ${step.id} step [${step.status}] ${step.text}${step.evidenceIds.length ? ` evidence:${step.evidenceIds.join(",")}` : ""}`,
+				`  - ${step.id} step [${step.status}] ${step.text}; output: ${step.expectedOutput}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
 		);
 		const decisions = task.decisions.map(
 			(decision) =>
@@ -97,6 +97,7 @@ export function formatTaskList(
 		);
 		return [
 			summary,
+			...task.warnings.map((warning) => `  - warning ${warning}`),
 			...blockerLines,
 			...decisions,
 			...planSteps,
@@ -117,12 +118,55 @@ export function formatTaskList(
 	return [...lines, ...warnings].join("\n");
 }
 
+export function formatTaskFocus(state: TaskState): string {
+	const task = state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
+	if (!task) return "No active pi-tasks task. Create one with task_plan.";
+	const step = (task.planSteps ?? []).find(
+		(item) => item.status !== "done" && item.status !== "skipped",
+	);
+	const lines = [
+		`Active task: ${task.id} ${task.title}`,
+		`Status: ${task.status} ${task.progress}%`,
+	];
+	if (!step) {
+		lines.push("Current step: none open");
+	} else {
+		lines.push(`Current step: ${step.id} [${step.status}] ${step.text}`);
+		lines.push(`Expected output: ${step.expectedOutput}`);
+		lines.push(
+			`Evidence: ${step.evidenceIds.length ? step.evidenceIds.join(",") : "none"}${step.evidenceRequired ? " (required)" : ""}`,
+		);
+		if (step.criterionIds.length > 0) {
+			lines.push(`Linked criteria: ${step.criterionIds.join(",")}`);
+		}
+		if (step.allowedActions.length > 0) {
+			lines.push(`Allowed actions: ${step.allowedActions.join(", ")}`);
+		}
+	}
+	const gaps = getVerificationGaps(task);
+	if (gaps.length > 0) lines.push(`Gaps: ${gaps.join("; ")}`);
+	if (task.warnings.length > 0) {
+		lines.push("Warnings:");
+		lines.push(...task.warnings.map((warning) => `- ${warning}`));
+	}
+	return lines.join("\n");
+}
+
 export function getVerificationGaps(task: Task): string[] {
 	const gaps: string[] = [];
 	const incompleteStep = (task.planSteps ?? []).find(
 		(step) => step.status !== "done" && step.status !== "skipped",
 	);
 	if (incompleteStep) gaps.push(`${incompleteStep.id} step pending`);
+	for (const step of task.planSteps ?? []) {
+		if (
+			step.evidenceRequired &&
+			(step.status === "done" || step.status === "skipped") &&
+			step.evidenceIds.length === 0
+		) {
+			gaps.push(`${step.id} lacks evidence`);
+		}
+	}
 	for (const criterion of task.acceptanceCriteria) {
 		if (criterion.status !== "satisfied" && criterion.status !== "skipped")
 			gaps.push(`${criterion.id} pending`);

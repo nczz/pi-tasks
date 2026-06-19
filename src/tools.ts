@@ -9,11 +9,12 @@ import type {
 	TaskPriority,
 	TaskState,
 	TaskStatus,
+	TaskStepInput,
 	TaskStepStatus,
 	VerificationLevel,
 } from "./model.ts";
 import type { ExtensionAPI, ExtensionContext, ToolResult } from "./pi-types.ts";
-import { formatTaskList } from "./render.ts";
+import { formatTaskFocus, formatTaskList } from "./render.ts";
 import { Type } from "./schema.ts";
 import { errorText, type TaskRuntimeStore } from "./store.ts";
 import { updateTaskUi } from "./widget.ts";
@@ -55,6 +56,7 @@ interface TaskPlanParams extends Record<string, unknown> {
 	objective: string;
 	acceptance_criteria: string[];
 	initial_steps?: string[];
+	plan_steps?: TaskStepInput[];
 	priority?: TaskPriority;
 	tags?: string[];
 	activate?: boolean;
@@ -76,6 +78,9 @@ interface TaskUpdateParams extends Record<string, unknown> {
 	step_id?: string;
 	step_status?: Exclude<TaskStepStatus, "pending">;
 	step_evidence_ids?: string[];
+	activity?: string;
+	scope?: "within_step" | "scope_change" | "off_plan";
+	scope_reason?: string;
 	note?: string;
 	reason?: string;
 	blocker?: {
@@ -131,6 +136,7 @@ export function registerTaskTools(
 			"Create a pi-tasks execution contract before non-trivial implementation work",
 		promptGuidelines: [
 			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
+			"Prefer plan_steps with expectedOutput, criterionIds, evidenceRequired, and allowedActions for commercial-quality work.",
 			"Acceptance criteria must be concrete enough to verify with evidence before completion.",
 			"Activate only one task unless the user explicitly asks for parallel work.",
 		],
@@ -143,6 +149,17 @@ export function registerTaskTools(
 				Type.String({ description: "Concrete acceptance criterion" }),
 			),
 			initial_steps: Type.Optional(Type.Array(Type.String())),
+			plan_steps: Type.Optional(
+				Type.Array(
+					Type.Object({
+						text: Type.String(),
+						expectedOutput: Type.String(),
+						criterionIds: Type.Optional(Type.Array(Type.String())),
+						evidenceRequired: Type.Optional(Type.Boolean()),
+						allowedActions: Type.Optional(Type.Array(Type.String())),
+					}),
+				),
+			),
 			priority: Type.Optional(Type.Enum(PRIORITIES)),
 			tags: Type.Optional(Type.Array(Type.String())),
 			activate: Type.Optional(
@@ -156,6 +173,7 @@ export function registerTaskTools(
 				objective: params.objective,
 				acceptanceCriteria: params.acceptance_criteria,
 				activate: params.activate ?? true,
+				...(params.plan_steps ? { planSteps: params.plan_steps } : {}),
 				...(params.initial_steps ? { initialSteps: params.initial_steps } : {}),
 				...(params.priority ? { priority: params.priority } : {}),
 				...(params.tags ? { tags: params.tags } : {}),
@@ -168,6 +186,23 @@ export function registerTaskTools(
 				`Created task ${taskId}: ${params.title}`,
 			);
 		},
+	});
+
+	pi.registerTool<Record<string, never>>({
+		name: "task_focus",
+		label: "Task Focus",
+		description:
+			"Show the active task's current allowed step, expected output, linked criteria, required evidence, and drift warnings.",
+		promptSnippet:
+			"Inspect the current pi-tasks focus before acting, then work only on the active step",
+		promptGuidelines: [
+			"Call task_focus before implementation, verification, or step completion work.",
+			"If intended work does not match the active step, record scope_change or off_plan with task_update first.",
+			"Use task_evidence before marking an evidence-required step done.",
+		],
+		parameters: Type.Object({}),
+		execute: async () =>
+			textResult(formatTaskFocus(store.getState()), store.getState()),
 	});
 
 	pi.registerTool<TaskListParams>({
@@ -207,7 +242,9 @@ export function registerTaskTools(
 			"Update pi-tasks progress, current ordered step, next action, status, or blocker details",
 		promptGuidelines: [
 			"Use step_id with step_status=done when the current planned step is finished.",
+			"Evidence-required steps need linked evidence before step_status=done.",
 			"Do not skip ahead; ordered plan steps must be completed or skipped in the displayed order.",
+			"Use activity with scope=within_step, scope_change, or off_plan to document meaningful work and drift.",
 			"Moving to blocked requires blocker details; unblocking requires a reason.",
 		],
 		parameters: Type.Object({
@@ -219,6 +256,11 @@ export function registerTaskTools(
 			step_id: Type.Optional(Type.String()),
 			step_status: Type.Optional(Type.Enum(STEP_STATUSES)),
 			step_evidence_ids: Type.Optional(Type.Array(Type.String())),
+			activity: Type.Optional(Type.String()),
+			scope: Type.Optional(
+				Type.Enum(["within_step", "scope_change", "off_plan"] as const),
+			),
+			scope_reason: Type.Optional(Type.String()),
 			note: Type.Optional(Type.String()),
 			reason: Type.Optional(
 				Type.String({ description: "Reason for unblock/rework transition" }),
@@ -253,6 +295,11 @@ export function registerTaskTools(
 					: {}),
 				...(params.step_evidence_ids !== undefined
 					? { stepEvidenceIds: params.step_evidence_ids }
+					: {}),
+				...(params.activity !== undefined ? { activity: params.activity } : {}),
+				...(params.scope !== undefined ? { scope: params.scope } : {}),
+				...(params.scope_reason !== undefined
+					? { scopeReason: params.scope_reason }
 					: {}),
 				...(params.note !== undefined ? { note: params.note } : {}),
 				...(params.reason !== undefined ? { reason: params.reason } : {}),

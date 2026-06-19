@@ -7,6 +7,7 @@ import {
 	type TaskState,
 	type TaskStatus,
 	type TaskStep,
+	type TaskStepInput,
 } from "./model.ts";
 
 const TERMINAL_STATUSES: TaskStatus[] = ["done", "cancelled"];
@@ -88,7 +89,9 @@ function createTask(
 	);
 	const planSteps = createPlanSteps(
 		event.taskId,
-		event.initialSteps ?? [],
+		event.planSteps,
+		event.initialSteps,
+		acceptanceCriteria.map((criterion) => criterion.id),
 		event.createdAt,
 		event.activate ?? true,
 	);
@@ -137,6 +140,7 @@ function updateTask(
 	const previousStatus = task.status;
 	if (event.status) validateStatusTransition(task, event.status, event);
 	if (event.stepId || event.stepStatus) updatePlanStep(task, event);
+	recordScopeSignal(task, event);
 	if (event.progress !== undefined)
 		task.progress = clampProgress(event.progress);
 	if (event.currentStep !== undefined) {
@@ -161,6 +165,7 @@ function updateTask(
 			if (!blocker.resolvedAt) blocker.resolvedAt = event.createdAt;
 		}
 	}
+	recalculateProgress(task);
 	task.updatedAt = event.createdAt;
 	return state;
 }
@@ -181,11 +186,15 @@ function addEvidence(
 	const duplicate = findDuplicateEvidence(task, evidence);
 	if (duplicate) {
 		linkEvidenceToCriteria(task, duplicate, event.criterionIds ?? []);
+		linkEvidenceToMatchingSteps(task, duplicate, event.criterionIds ?? []);
+		recalculateProgress(task);
 		task.updatedAt = event.createdAt;
 		return state;
 	}
 	task.evidence.push(evidence);
 	linkEvidenceToCriteria(task, evidence, event.criterionIds ?? []);
+	linkEvidenceToMatchingSteps(task, evidence, event.criterionIds ?? []);
+	recalculateProgress(task);
 	task.updatedAt = event.createdAt;
 	return state;
 }
@@ -207,6 +216,23 @@ function linkEvidenceToCriteria(
 	}
 }
 
+function linkEvidenceToMatchingSteps(
+	task: Task,
+	evidence: TaskEvidence,
+	criterionIds: string[],
+): void {
+	if (criterionIds.length === 0) return;
+	for (const step of task.planSteps) {
+		if (
+			step.criterionIds.some((criterionId) =>
+				criterionIds.includes(criterionId),
+			)
+		) {
+			step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
+		}
+	}
+}
+
 function recordDecision(
 	state: TaskState,
 	event: Extract<TaskEvent, { type: "task.decision_recorded" }>,
@@ -221,6 +247,7 @@ function recordDecision(
 		taskId: task.id,
 		createdAt: event.createdAt,
 	});
+	recalculateProgress(task);
 	task.updatedAt = event.createdAt;
 	return state;
 }
@@ -293,19 +320,52 @@ function applySnapshot(
 
 function createPlanSteps(
 	taskId: string,
-	steps: string[],
+	planSteps: TaskStepInput[] | undefined,
+	initialSteps: string[] | undefined,
+	criterionIds: string[],
 	createdAt: string,
 	activate: boolean,
 ): TaskStep[] {
+	const steps =
+		planSteps ??
+		initialSteps?.map(
+			(text): TaskStepInput => ({
+				text,
+				expectedOutput: `Verified output for: ${text}`,
+				criterionIds,
+				evidenceRequired: true,
+				allowedActions: [],
+			}),
+		) ??
+		[];
+	if (steps.length === 0) {
+		throw new TaskTransitionError("At least one ordered plan step is required");
+	}
 	return steps.map((step, index): TaskStep => {
-		const text = step.trim();
+		const text = step.text.trim();
+		const expectedOutput = step.expectedOutput.trim();
 		if (!text) throw new TaskTransitionError("Plan steps cannot be blank");
+		if (!expectedOutput) {
+			throw new TaskTransitionError("Plan step expectedOutput is required");
+		}
+		const linkedCriteria = unique(step.criterionIds ?? criterionIds);
+		for (const criterionId of linkedCriteria) {
+			if (!criterionIds.includes(criterionId)) {
+				throw new TaskTransitionError(
+					`Plan step references unknown criterion ${criterionId}`,
+				);
+			}
+		}
 		return {
 			id: `${taskId}-S${index + 1}`,
 			taskId,
 			text,
+			expectedOutput,
 			status: index === 0 && activate ? "active" : "pending",
 			evidenceIds: [],
+			criterionIds: linkedCriteria,
+			evidenceRequired: step.evidenceRequired ?? true,
+			allowedActions: step.allowedActions ?? [],
 			...(index === 0 && activate ? { startedAt: createdAt } : {}),
 		};
 	});
@@ -342,11 +402,21 @@ function updatePlanStep(
 	for (const evidenceId of event.stepEvidenceIds ?? []) {
 		requireEvidence(task, evidenceId);
 	}
-	currentStep.status = event.stepStatus;
-	currentStep.evidenceIds = unique([
+	const nextEvidenceIds = unique([
 		...currentStep.evidenceIds,
 		...(event.stepEvidenceIds ?? []),
 	]);
+	if (
+		event.stepStatus === "done" &&
+		currentStep.evidenceRequired &&
+		nextEvidenceIds.length === 0
+	) {
+		throw new TaskTransitionError(
+			`Plan step ${currentStep.id} requires evidence before done`,
+		);
+	}
+	currentStep.status = event.stepStatus;
+	currentStep.evidenceIds = nextEvidenceIds;
 	if (event.note !== undefined) currentStep.note = event.note;
 	if (event.stepStatus === "active") {
 		currentStep.startedAt ??= event.createdAt;
@@ -365,6 +435,30 @@ function updatePlanStep(
 	}
 	delete task.currentStep;
 	delete task.nextAction;
+}
+
+function recordScopeSignal(
+	task: Task,
+	event: Extract<TaskEvent, { type: "task.updated" }>,
+): void {
+	if (!event.activity && !event.scope) return;
+	if (!event.activity?.trim()) {
+		throw new TaskTransitionError("Scope updates require an activity");
+	}
+	const scope = event.scope ?? "within_step";
+	if (
+		(scope === "scope_change" || scope === "off_plan") &&
+		!event.scopeReason?.trim()
+	) {
+		throw new TaskTransitionError(
+			"Scope change or off-plan activity requires scopeReason",
+		);
+	}
+	if (scope === "scope_change" || scope === "off_plan") {
+		task.warnings.push(
+			`${scope}: ${event.activity.trim()} (${event.scopeReason?.trim()})`,
+		);
+	}
 }
 
 function validateCurrentStepUpdate(task: Task, currentStep: string): void {
@@ -530,6 +624,41 @@ function applyStatusChange(
 	task.status = status;
 	if (status === "done") task.progress = 100;
 	task.updatedAt = timestamp;
+}
+
+function recalculateProgress(task: Task): void {
+	if (task.status === "done") {
+		task.progress = 100;
+		return;
+	}
+	if (task.status === "cancelled") return;
+	const derived = deriveProgress(task);
+	if (derived > task.progress) task.progress = derived;
+}
+
+function deriveProgress(task: Task): number {
+	const scores: number[] = [];
+	const planSteps = task.planSteps ?? [];
+	if (planSteps.length > 0) {
+		const closedSteps = planSteps.filter(
+			(step) => step.status === "done" || step.status === "skipped",
+		).length;
+		scores.push(closedSteps / planSteps.length);
+	}
+	if (task.acceptanceCriteria.length > 0) {
+		const closedCriteria = task.acceptanceCriteria.filter(
+			(criterion) =>
+				criterion.status === "satisfied" || criterion.status === "skipped",
+		).length;
+		scores.push(closedCriteria / task.acceptanceCriteria.length);
+	}
+	if (task.evidence.length > 0) scores.push(1);
+	if (scores.length === 0) return task.status === "active" ? 1 : 0;
+	const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+	return Math.min(
+		99,
+		Math.max(task.status === "active" ? 1 : 0, Math.round(average * 99)),
+	);
 }
 
 function validateEvidence(evidence: TaskEvidence): void {

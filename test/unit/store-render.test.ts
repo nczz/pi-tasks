@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TASK_EVENT_CUSTOM_TYPE, type TaskEvent } from "../../src/model.ts";
 import {
 	formatStatusText,
+	formatTaskFocus,
 	formatTaskList,
 	formatWidgetLines,
 } from "../../src/render.ts";
@@ -144,6 +145,16 @@ describe("store replay and render helpers", () => {
 		);
 	});
 
+	it("formats the active focus with step contract details", () => {
+		const state = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
+		]).state;
+		const output = formatTaskFocus(state);
+		expect(output).toContain("Current step: T1-S1");
+		expect(output).toContain("Expected output");
+		expect(output).toContain("Evidence: none (required)");
+	});
+
 	it("includes unresolved blocker details when evidence details are requested", () => {
 		const state = replayBranchEntries([
 			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
@@ -198,5 +209,26 @@ describe("store replay and render helpers", () => {
 		expect(output).toContain("blocker T1-B1 [resolved]");
 		expect(output).toContain("D1 decision [user]");
 		expect(output).toContain("Use option A");
+	});
+
+	it("includes task warnings in detailed task output", () => {
+		const driftEvent: TaskEvent = {
+			version: 1,
+			id: "T1-drift",
+			type: "task.updated",
+			taskId: "T1",
+			createdAt: "2026-06-18T00:04:00.000Z",
+			source: "tool",
+			activity: "Changed unrelated files",
+			scope: "off_plan",
+			scopeReason: "Testing warning output",
+		};
+		const state = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: driftEvent },
+		]).state;
+		const output = formatTaskList(state, { includeEvidence: true });
+		expect(output).toContain("warning off_plan");
+		expect(output).toContain("Testing warning output");
 	});
 });

@@ -8,17 +8,28 @@ Pi-native task and progress contract for agents and users.
 
 - Typed task, acceptance criterion, evidence, decision, blocker, and event model.
 - Pure reducer with transition validation and evidence-before-completion enforcement.
-- Ordered plan steps from `initial_steps`; agents must complete or skip the current step before advancing.
+- Ordered plan steps from `initial_steps` or structured `plan_steps`; agents must complete or skip the current step before advancing.
+- Step-level contracts with expected output, linked criteria, required evidence, and allowed actions.
+- Current-step focus tool that tells the agent exactly what work is in scope before acting.
+- Scope drift recording for scope changes and off-plan activity.
+- Derived progress automatically advances from completed steps, satisfied criteria, and evidence while preserving manual progress updates.
 - Duplicate evidence detection by type, level, passed status, summary, and references.
 - Branch-aware persistence through Pi custom entries with custom type `pi-tasks:event`.
 - Session replay from `ctx.sessionManager.getBranch()` on `session_start` and `session_tree`.
-- Agent tools: `task_plan`, `task_list`, `task_update`, `task_evidence`, `task_decision`, and `task_complete`.
+- Agent tools: `task_plan`, `task_focus`, `task_list`, `task_update`, `task_evidence`, `task_decision`, and `task_complete`.
 - User command: `/tasks`.
 - Compact status and above-editor widget through `ctx.ui.setStatus` and `ctx.ui.setWidget`.
 - Compaction snapshot hook via `session_before_compact`.
 - npm package runtime is built to `dist/`; source `index.ts` remains usable for local extension development.
 
 ## Completion Rules
+
+`task_update` rejects unsupported step completion when:
+
+- a later step is updated before the current open step,
+- an evidence-required step is marked done before linked evidence exists,
+- a step is skipped without a reason or note,
+- or `scope_change` / `off_plan` activity is recorded without `scope_reason`.
 
 `task_complete` rejects unsupported completion when:
 
@@ -49,6 +60,7 @@ Real Pi dogfood passed on 2026-06-18 and 2026-06-19 with isolated session storag
 
 - task creation, progress update, evidence rejection, evidence attachment, completion, and detailed listing,
 - ordered step completion and rejection of out-of-order step updates,
+- structured `plan_steps`, current-step focus, step evidence requirement, and scope drift rejection/warning,
 - duplicate evidence rejection without creating an extra evidence record,
 - same-session resume with replayed custom entries,
 - blocked task display with blocker source, resolved blocker audit trail, explicit user decision, and unblock condition,

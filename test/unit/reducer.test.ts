@@ -85,6 +85,10 @@ function stepDone(stepId = "T1-S1"): TaskEvent {
 	return updated({ stepId, stepStatus: "done" });
 }
 
+function evidenceThenStepDone(): TaskEvent[] {
+	return [evidence(), stepDone()];
+}
+
 function apply(events: TaskEvent[]): TaskState {
 	return replayTaskEvents(events);
 }
@@ -97,6 +101,15 @@ describe("task reducer", () => {
 		expect(state.tasks.T1.planSteps[0]?.id).toBe("T1-S1");
 		expect(state.tasks.T1.planSteps[0]?.status).toBe("active");
 		expect(state.tasks.T1.acceptanceCriteria).toHaveLength(2);
+	});
+
+	it("rejects task creation without ordered plan steps", () => {
+		expect(() =>
+			reduceTaskState(createEmptyState(), {
+				...created(),
+				initialSteps: [],
+			}),
+		).toThrow("At least one ordered plan step is required");
 	});
 
 	it("keeps only one active task by default", () => {
@@ -142,6 +155,8 @@ describe("task reducer", () => {
 				(criterion) => criterion.status === "satisfied",
 			),
 		).toBe(true);
+		expect(state.tasks.T1.progress).toBeGreaterThan(1);
+		expect(state.tasks.T1.progress).toBeLessThan(100);
 	});
 
 	it("deduplicates identical evidence during replay", () => {
@@ -166,15 +181,47 @@ describe("task reducer", () => {
 	});
 
 	it("advances plan steps only in order", () => {
-		const state = apply([
-			created(),
-			updated({ stepId: "T1-S1", stepStatus: "done" }),
-		]);
+		const state = apply([created(), ...evidenceThenStepDone()]);
 		expect(state.tasks.T1.planSteps[0]?.status).toBe("done");
 		expect(state.tasks.T1.currentStep).toBeUndefined();
+		expect(state.tasks.T1.progress).toBeGreaterThan(1);
 		expect(() =>
-			apply([created(), updated({ stepId: "T1-S2", stepStatus: "done" })]),
+			apply([
+				created(),
+				evidence(),
+				updated({ stepId: "T1-S2", stepStatus: "done" }),
+			]),
 		).toThrow("cannot be updated before T1-S1");
+	});
+
+	it("rejects evidence-required step completion without evidence", () => {
+		expect(() => apply([created(), stepDone()])).toThrow(
+			"requires evidence before done",
+		);
+	});
+
+	it("records scope drift warnings when activity is off plan", () => {
+		const state = apply([
+			created(),
+			updated({
+				activity: "Edited an unrelated release script",
+				scope: "off_plan",
+				scopeReason: "Needed to verify drift detection",
+			}),
+		]);
+		expect(state.tasks.T1.warnings[0]).toContain("off_plan");
+		expect(() =>
+			apply([
+				created(),
+				updated({ activity: "Changed scope", scope: "scope_change" }),
+			]),
+		).toThrow("requires scopeReason");
+	});
+
+	it("derives high active progress when all criteria are satisfied", () => {
+		const state = apply([created(), ...evidenceThenStepDone()]);
+		expect(state.tasks.T1.status).toBe("active");
+		expect(state.tasks.T1.progress).toBe(99);
 	});
 
 	it("rejects passing non-note evidence with not_verified level", () => {
@@ -211,8 +258,7 @@ describe("task reducer", () => {
 		expect(() =>
 			apply([
 				created(),
-				stepDone(),
-				evidence(),
+				...evidenceThenStepDone(),
 				updated({
 					status: "blocked",
 					blocker: {
@@ -227,7 +273,7 @@ describe("task reducer", () => {
 	});
 
 	it("completes with evidence", () => {
-		const state = apply([created(), stepDone(), evidence(), complete()]);
+		const state = apply([created(), ...evidenceThenStepDone(), complete()]);
 		expect(state.tasks.T1.status).toBe("done");
 		expect(state.tasks.T1.progress).toBe(100);
 		expect(state.activeTaskId).toBeUndefined();
@@ -270,7 +316,7 @@ describe("task reducer", () => {
 	});
 
 	it("replay reconstructs the same state", () => {
-		const events = [created(), stepDone(), evidence(), complete()];
+		const events = [created(), ...evidenceThenStepDone(), complete()];
 		expect(replayTaskEvents(events)).toEqual(apply(events));
 	});
 });

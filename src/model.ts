@@ -76,11 +76,23 @@ export interface TaskStep {
 	id: string;
 	taskId: string;
 	text: string;
+	expectedOutput: string;
 	status: TaskStepStatus;
 	evidenceIds: string[];
+	criterionIds: string[];
+	evidenceRequired: boolean;
+	allowedActions: string[];
 	note?: string;
 	startedAt?: string;
 	completedAt?: string;
+}
+
+export interface TaskStepInput {
+	text: string;
+	expectedOutput: string;
+	criterionIds?: string[];
+	evidenceRequired?: boolean;
+	allowedActions?: string[];
 }
 
 export interface Task {
@@ -134,6 +146,7 @@ export interface TaskCreatedEvent extends TaskEventBase {
 	objective: string;
 	acceptanceCriteria: string[];
 	initialSteps?: string[];
+	planSteps?: TaskStepInput[];
 	priority?: TaskPriority;
 	tags?: string[];
 	parentId?: string;
@@ -151,6 +164,9 @@ export interface TaskUpdatedEvent extends TaskEventBase {
 	stepId?: string;
 	stepStatus?: TaskStepStatus;
 	stepEvidenceIds?: string[];
+	activity?: string;
+	scope?: "within_step" | "scope_change" | "off_plan";
+	scopeReason?: string;
 	note?: string;
 	blocker?: Omit<TaskBlocker, "id" | "taskId" | "since" | "resolvedAt">;
 	reason?: string;

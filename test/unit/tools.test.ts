@@ -81,6 +81,7 @@ describe("registered task tools", () => {
 		const update = requireTool(tools, "task_update");
 		const evidence = requireTool(tools, "task_evidence");
 		const complete = requireTool(tools, "task_complete");
+		const focus = requireTool(tools, "task_focus");
 
 		await execute(
 			plan,
@@ -88,12 +89,24 @@ describe("registered task tools", () => {
 				title: "Tool MVP",
 				objective: "Verify tools",
 				acceptance_criteria: ["Tool creates task"],
+				plan_steps: [
+					{
+						text: "Verify tool harness",
+						expectedOutput: "Harness evidence is recorded",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["run unit harness"],
+					},
+				],
 				activate: true,
 			},
 			ctx,
 		);
 		expect(ui.status).toContain("Task T1 active");
 		expect(ui.widget?.join("\n")).toContain("Active task: T1");
+		const focused = await execute(focus, {}, ctx);
+		expect(focused.content[0]?.text).toContain("Current step: T1-S1");
+		expect(focused.content[0]?.text).toContain("Expected output");
 		await execute(
 			update,
 			{ task_id: "T1", progress: 50, next_action: "attach evidence" },
@@ -135,13 +148,18 @@ describe("registered task tools", () => {
 		);
 		expect(store.getState().tasks.T1?.evidence).toHaveLength(1);
 		await execute(
+			update,
+			{ task_id: "T1", step_id: "T1-S1", step_status: "done" },
+			ctx,
+		);
+		await execute(
 			complete,
 			{ task_id: "T1", summary: "done", evidence_ids: ["E2"] },
 			ctx,
 		);
 
 		expect(store.getState().tasks.T1?.status).toBe("done");
-		expect(entries).toHaveLength(4);
+		expect(entries).toHaveLength(5);
 		expect(ui.status).toBeUndefined();
 
 		const replayed = createTaskRuntimeStore();

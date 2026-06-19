@@ -225,8 +225,12 @@ export interface TaskStep {
 	id: string;
 	taskId: string;
 	text: string;
+	expectedOutput: string;
 	status: "pending" | "active" | "done" | "skipped";
 	evidenceIds: string[];
+	criterionIds: string[];
+	evidenceRequired: boolean;
+	allowedActions: string[];
 	note?: string;
 	startedAt?: string;
 	completedAt?: string;
@@ -236,8 +240,10 @@ export interface TaskStep {
 Rules:
 
 - `initial_steps` become ordered task steps with IDs such as `T1-S1`.
+- Structured `plan_steps` should provide expected output, linked criteria, evidence requirement, and allowed actions.
 - The first step is active when the task is activated.
 - Agents must complete or skip the current open step before advancing.
+- Evidence-required steps cannot be marked `done` until linked evidence exists.
 - Skipping a step requires a reason or note.
 
 ### 5.8 Task
@@ -273,6 +279,8 @@ export interface Task {
 Rules:
 
 - `progress` is clamped to 0-100.
+- Progress is automatically raised from completed/skipped plan steps, satisfied/skipped criteria, and recorded evidence when derived progress exceeds the stored value.
+- Derived progress for non-completed tasks is capped at 99; only `task_complete` can set 100.
 - `done` forces progress to 100.
 - `cancelled` must not imply completion.
 - only one task should be `active` by default unless explicit parallel mode exists later.
@@ -380,6 +388,7 @@ Required parameters:
 Optional parameters:
 
 - `initial_steps`
+- `plan_steps`
 - `priority`
 - `risks`
 - `tags`
@@ -388,12 +397,29 @@ Optional parameters:
 Behavior:
 
 - creates task event,
-- converts `initial_steps` to ordered plan steps,
+- converts `initial_steps` or structured `plan_steps` to ordered plan steps,
+- rejects task creation without at least one ordered plan step,
 - optionally activates it,
 - if activating, deactivates previous active task by moving it to `pending` unless explicit parallel support exists,
 - returns task summary and next action.
 
-### 8.2 `task_list`
+### 8.2 `task_focus`
+
+Purpose:
+
+Show the single current task step the agent is allowed to work on.
+
+Parameters:
+
+None.
+
+Behavior:
+
+- no mutation,
+- returns active task, current open step, expected output, linked criteria, required evidence, allowed actions, gaps, and drift warnings,
+- should be called before implementation, verification, or step completion work.
+
+### 8.3 `task_list`
 
 Purpose:
 
@@ -412,7 +438,7 @@ Behavior:
 - returns active task first,
 - includes blockers and verification gaps.
 
-### 8.3 `task_update`
+### 8.4 `task_update`
 
 Purpose:
 
@@ -428,6 +454,9 @@ Parameters:
 - `step_id`
 - `step_status`
 - `step_evidence_ids`
+- `activity`
+- `scope`
+- `scope_reason`
 - `note`
 
 Behavior:
@@ -435,11 +464,13 @@ Behavior:
 - validates transition,
 - rejects attempts to update a later plan step before the current open step,
 - advances to the next plan step after the current step is marked `done` or `skipped`,
+- rejects `done` for evidence-required steps without linked evidence,
 - rejects skipping a plan step without a reason or note,
+- records warnings for `scope_change` or `off_plan` activity and requires `scope_reason`,
 - appends event,
 - updates widget/status.
 
-### 8.4 `task_evidence`
+### 8.5 `task_evidence`
 
 Purpose:
 
@@ -461,7 +492,7 @@ Behavior:
 - marks referenced criteria satisfied only when `passed: true`,
 - never marks task done by itself.
 
-### 8.5 `task_decision`
+### 8.6 `task_decision`
 
 Purpose:
 
@@ -481,7 +512,7 @@ Behavior:
 - appends decision,
 - visible in task details.
 
-### 8.6 `task_complete`
+### 8.7 `task_complete`
 
 Purpose:
 
@@ -738,6 +769,9 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - typed model and event contracts in `src/model.ts`,
 - pure reducer and transition validation in `src/reducer.ts`,
 - ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
+- structured step contracts with expected output, criterion links, evidence requirement, and allowed actions,
+- `task_focus` current-step guidance before action,
+- scope drift recording for `scope_change` and `off_plan` activity,
 - duplicate evidence deduplication in tool execution and replay,
 - branch custom-entry replay in `src/store.ts`,
 - tool registration in `src/tools.ts`,
@@ -762,6 +796,7 @@ Verified locally:
 Verified with real Pi dogfood:
 
 - task creation, ordered step update, evidence rejection, evidence attachment, completion, and listing,
+- structured `plan_steps`, current-step focus, step-level evidence requirement, and scope drift rejection/warning,
 - adversarial rejection of out-of-order step update, premature completion, duplicate evidence, and skip-without-reason,
 - same-session resume from persisted `pi-tasks:event` custom entries,
 - blocked task display with blocker source, reason, unblock condition, resolved blocker audit trail, and explicit user decision,

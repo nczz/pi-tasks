@@ -18,6 +18,7 @@ const createEvent: TaskEvent = {
 	title: "Command test",
 	objective: "Verify /tasks",
 	acceptanceCriteria: ["command shows task"],
+	initialSteps: ["render command output"],
 	activate: true,
 };
 

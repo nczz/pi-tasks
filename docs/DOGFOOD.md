@@ -21,6 +21,8 @@ Environment:
 - Adversarial dedupe session ID: `pi-tasks-release-adversarial-dedupe`
 - Blocked/decision session ID: `pi-tasks-release-blocked-decision`
 - Installed-package session ID: `pi-tasks-release-installed-package`
+- Commercial contract session directory: `/private/tmp/pi-tasks-commercial-dogfood/sessions`
+- Commercial contract session ID: `pi-tasks-commercial-contract`
 
 ## Passed Scenarios
 
@@ -45,6 +47,10 @@ Environment:
 - Confirmed `pi install ./` records the local package in an isolated Pi config.
 - Confirmed npm tarball install contains `dist/` runtime and supports `import("pi-tasks")`.
 - Confirmed installed package Pi smoke passes with `--extension ./node_modules/pi-tasks/dist/index.js`.
+- Confirmed commercial `plan_steps` flow uses expected output, linked criteria, evidence requirement, and allowed actions.
+- Confirmed `task_focus` returns the current active step contract before work proceeds.
+- Confirmed evidence-required steps reject `done` before linked evidence exists.
+- Confirmed `off_plan` activity without `scope_reason` is rejected, and `off_plan` with `scope_reason` is recorded as a warning.
 
 ## Commands
 
@@ -123,6 +129,17 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-dogfood/sessions \
   --tools task_plan,task_update,task_evidence,task_complete,task_list \
   --session-id pi-tasks-release-installed-package \
   -p "Installed package smoke: create one task with one initial step and one acceptance criterion, mark the step done, add evidence, complete it, and list the final state with evidence."
+```
+
+Commercial contract scenario:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-commercial-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_focus,task_update,task_evidence,task_complete,task_list \
+  --session-id pi-tasks-commercial-contract \
+  --name pi-tasks-commercial-contract \
+  -p "Create one task using structured plan_steps, call task_focus, reject step done before evidence, record evidence, close steps, reject off_plan without scope_reason, record off_plan with scope_reason, complete, and list final evidence."
 ```
 
 ## Package Gates
