@@ -26,6 +26,8 @@ Environment:
 - Recursive decomposition session directory: `/private/tmp/pi-tasks-decomposition-dogfood/sessions`
 - Recursive decomposition session ID: `pi-tasks-recursive-decomposition-step-evidence`
 - Installed decomposition tools session ID: `pi-tasks-installed-decomposition-tools`
+- Compaction resume session directory: `/private/tmp/pi-tasks-compaction-dogfood/sessions`
+- Compaction resume session ID: `pi-tasks-compaction-resume`
 
 ## Passed Scenarios
 
@@ -59,6 +61,9 @@ Environment:
 - Confirmed decomposition replaces `T1-S1` with atomic child steps `T1-S1.1` and `T1-S1.2`.
 - Confirmed step-scoped evidence with `step_ids` prevents evidence for `T1-S1.1` from satisfying `T1-S1.2`, even when both share the same acceptance criterion.
 - Confirmed installed package runtime exposes `task_granularity_check` and `task_decompose`, and can replace an installed-package non-atomic step with child steps.
+- Confirmed `task_resume` reports current decomposed child step, lineage, next allowed actions, and verification gaps.
+- Confirmed `task_checkpoint` persists a snapshot with resume fields and `task_resume` remains stable after checkpoint.
+- Confirmed same-session replay after checkpoint restores the current child step `T1-S1.2` and next allowed action `task_evidence`.
 
 ## Commands
 
@@ -161,6 +166,17 @@ env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-decomposition-dogfood/sess
   -p "Create one non-atomic plan step, confirm task_focus and task_granularity_check show needs_breakdown, reject marking it done, decompose it into two atomic child steps that share one criterion, record evidence for only T1-S1.1 with step_ids, reject T1-S1.2 done before its own evidence, then record T1-S1.2 evidence, complete, and list final evidence."
 ```
 
+Compaction-resilient resume scenario:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-compaction-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts --no-builtin-tools \
+  --tools task_plan,task_decompose,task_resume,task_checkpoint,task_evidence,task_update,task_list \
+  --session-id pi-tasks-compaction-resume \
+  --name pi-tasks-compaction-resume \
+  -p "Create one non-atomic task, decompose it into atomic child steps, call task_resume, create a task_checkpoint, then report the current child step, lineage, next allowed actions, and verification gaps."
+```
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -177,6 +193,6 @@ Also passed on 2026-06-19:
 
 The following are not counted as failed MVP gates, but should be covered before expanding the UI or release claims:
 
-- compaction behavior after Pi performs real context trimming,
+- deterministic proof that a real Pi context-trimming compaction event fired in this environment,
 - narrow-terminal visual QA for status/widget rendering,
 - interactive branch divergence navigation inside a live Pi session tree.

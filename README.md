@@ -12,13 +12,14 @@ Pi-native task and progress contract for agents and users.
 - Step-level contracts with expected output, linked criteria, required evidence, and allowed actions.
 - Recursive decomposition gate: non-atomic steps must be broken into smaller child steps before execution can be marked done.
 - Step-scoped evidence through `task_evidence.step_ids`, preventing one criterion-level evidence item from accidentally satisfying multiple atomic steps.
+- Compaction-resilient resume contract through `task_resume`, `task_checkpoint`, and snapshot resume fields.
 - Current-step focus tool that tells the agent exactly what work is in scope before acting.
 - Scope drift recording for scope changes and off-plan activity.
 - Derived progress automatically advances from completed steps, satisfied criteria, and evidence while preserving manual progress updates.
 - Duplicate evidence detection by type, level, passed status, summary, and references.
 - Branch-aware persistence through Pi custom entries with custom type `pi-tasks:event`.
 - Session replay from `ctx.sessionManager.getBranch()` on `session_start` and `session_tree`.
-- Agent tools: `task_plan`, `task_focus`, `task_granularity_check`, `task_decompose`, `task_list`, `task_update`, `task_evidence`, `task_decision`, and `task_complete`.
+- Agent tools: `task_plan`, `task_focus`, `task_resume`, `task_checkpoint`, `task_granularity_check`, `task_decompose`, `task_list`, `task_update`, `task_evidence`, `task_decision`, and `task_complete`.
 - User command: `/tasks`.
 - Compact status and above-editor widget through `ctx.ui.setStatus` and `ctx.ui.setWidget`.
 - Compaction snapshot hook via `session_before_compact`.
@@ -65,6 +66,7 @@ Real Pi dogfood passed on 2026-06-18 and 2026-06-19 with isolated session storag
 - ordered step completion and rejection of out-of-order step updates,
 - structured `plan_steps`, current-step focus, step evidence requirement, and scope drift rejection/warning,
 - recursive decomposition of non-atomic steps into atomic child steps,
+- compaction-safe resume from snapshot replay, including decomposed child-step lineage and next allowed actions,
 - duplicate evidence rejection without creating an extra evidence record,
 - same-session resume with replayed custom entries,
 - blocked task display with blocker source, resolved blocker audit trail, explicit user decision, and unblock condition,

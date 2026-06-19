@@ -441,7 +441,39 @@ Behavior:
 - returns the granularity status and next allowed action when the current step still needs breakdown,
 - should be called before implementation, verification, or step completion work.
 
-### 8.3 `task_granularity_check`
+### 8.3 `task_resume`
+
+Purpose:
+
+Return the compact execution contract needed after context compaction or session resume.
+
+Parameters:
+
+None.
+
+Behavior:
+
+- no mutation,
+- returns active task, current step, decomposition lineage, expected output, step evidence, criteria links, allowed actions, verification gaps, blockers, warnings, recent decisions, and resume instruction,
+- should be called immediately after compaction, reload, fork, or uncertain continuation.
+
+### 8.4 `task_checkpoint`
+
+Purpose:
+
+Persist a compact snapshot with resume fields.
+
+Parameters:
+
+- `reason`
+
+Behavior:
+
+- appends a `task.snapshot` event with `state` and `resume`,
+- does not count as verification evidence,
+- is intended before long pauses, risky context transitions, or manual handoff.
+
+### 8.5 `task_granularity_check`
 
 Purpose:
 
@@ -458,7 +490,7 @@ Behavior:
 - returns the step atomicity booleans and rationale,
 - tells the agent to call `task_decompose` when the step is not atomic.
 
-### 8.4 `task_decompose`
+### 8.6 `task_decompose`
 
 Purpose:
 
@@ -480,7 +512,7 @@ Behavior:
 - replaces the parent step with ordered child steps such as `T1-S1.1`,
 - keeps the first child in the parent's current status so focus can continue.
 
-### 8.5 `task_list`
+### 8.7 `task_list`
 
 Purpose:
 
@@ -499,7 +531,7 @@ Behavior:
 - returns active task first,
 - includes blockers and verification gaps.
 
-### 8.6 `task_update`
+### 8.8 `task_update`
 
 Purpose:
 
@@ -532,7 +564,7 @@ Behavior:
 - appends event,
 - updates widget/status.
 
-### 8.7 `task_evidence`
+### 8.9 `task_evidence`
 
 Purpose:
 
@@ -556,7 +588,7 @@ Behavior:
 - marks referenced criteria satisfied only when `passed: true`,
 - never marks task done by itself.
 
-### 8.8 `task_decision`
+### 8.10 `task_decision`
 
 Purpose:
 
@@ -576,7 +608,7 @@ Behavior:
 - appends decision,
 - visible in task details.
 
-### 8.9 `task_complete`
+### 8.11 `task_complete`
 
 Purpose:
 
@@ -680,18 +712,35 @@ If malformed event exists:
 
 ## 12. Compaction Strategy
 
-MVP requirement:
+Commercial baseline:
 
-- state must survive compaction through event replay or a compacted summary event.
+- state survives through event replay and `task.snapshot`,
+- `session_before_compact` appends a snapshot with `state` and derived `resume`,
+- `task_checkpoint` lets the agent/user create the same snapshot manually,
+- `task_resume` renders the compact continuation contract without requiring old chat context.
 
-If Pi branch after compaction excludes old custom entries, then add a `session_before_compact` hook that appends a task snapshot event or compaction details.
+Resume context must include:
 
-Spike required before implementation completion:
+- active task,
+- current open step,
+- decomposition lineage,
+- expected output,
+- step-scoped evidence status,
+- linked criteria,
+- allowed actions,
+- next allowed actions,
+- verification gaps,
+- blockers,
+- warnings,
+- recent decisions,
+- and a direct resume instruction.
 
-- create task,
-- trigger compaction if feasible,
-- reload/resume,
-- confirm state.
+Known verification boundary:
+
+- snapshot-only replay and post-snapshot event replay are covered by unit tests,
+- Pi dogfood covers `task_resume`, `task_checkpoint`, and same-session resume from persisted entries,
+- tarball install and import cover the packaged runtime,
+- deterministic triggering of real Pi context trimming is environment-dependent and must be reported as skipped unless actually observed.
 
 ## 13. Guard Mode Specification
 
@@ -836,6 +885,7 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - structured step contracts with expected output, criterion links, evidence requirement, and allowed actions,
 - recursive decomposition gate with `task_granularity_check` and `task_decompose`,
 - `task_focus` current-step guidance before action,
+- `task_resume`, `task_checkpoint`, and snapshot resume fields for compaction-safe continuation,
 - scope drift recording for `scope_change` and `off_plan` activity,
 - duplicate evidence deduplication in tool execution and replay,
 - branch custom-entry replay in `src/store.ts`,
@@ -863,6 +913,7 @@ Verified with real Pi dogfood:
 - task creation, ordered step update, evidence rejection, evidence attachment, completion, and listing,
 - structured `plan_steps`, current-step focus, step-level evidence requirement, and scope drift rejection/warning,
 - non-atomic step rejection and decomposition into atomic child steps,
+- compaction-safe resume and checkpoint behavior through simulated snapshot replay,
 - adversarial rejection of out-of-order step update, premature completion, duplicate evidence, and skip-without-reason,
 - same-session resume from persisted `pi-tasks:event` custom entries,
 - blocked task display with blocker source, reason, unblock condition, resolved blocker audit trail, and explicit user decision,
@@ -872,7 +923,7 @@ Verified with real Pi dogfood:
 
 Remaining runtime coverage:
 
-- compaction behavior after real Pi context trimming,
+- deterministic proof that a real Pi context-trimming compaction event fired in this environment,
 - narrow-terminal visual QA in a live Pi TUI session,
 - interactive branch divergence navigation inside a live Pi session tree.
 

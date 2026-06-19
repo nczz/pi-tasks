@@ -72,6 +72,11 @@ export function replayBranchEntries(entries: BranchEntry[]): ReplayResult {
 	return { state, malformedEvents };
 }
 
+export function snapshotState(state: TaskState): Omit<TaskState, "events"> {
+	const { events: _events, ...snapshot } = state;
+	return snapshot;
+}
+
 function isTaskEvent(value: unknown): value is TaskEvent {
 	if (!value || typeof value !== "object") return false;
 	const maybe = value as Partial<TaskEvent>;

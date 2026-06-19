@@ -10,6 +10,7 @@
 - Release-hardening dogfood evidence for ordered-step misuse, duplicate evidence rejection, decision/blocker rendering, install, tarball import, and installed-package Pi smoke.
 - Commercial contract dogfood evidence for structured `plan_steps`, `task_focus`, evidence-required step completion, and scope drift warnings.
 - Recursive decomposition tools and tests for non-atomic step rejection, granularity checks, and child-step replacement.
+- Compaction-resilient resume contract with `task_resume`, `task_checkpoint`, snapshot resume fields, and snapshot replay tests.
 - Release process and dogfood checklist documents.
 
 ### Changed

@@ -1,4 +1,11 @@
-import type { Task, TaskState, TaskStatus } from "./model.ts";
+import type {
+	Task,
+	TaskResumeContext,
+	TaskResumeStep,
+	TaskState,
+	TaskStatus,
+	TaskStep,
+} from "./model.ts";
 
 const STATUS_ORDER: TaskStatus[] = [
 	"active",
@@ -158,6 +165,125 @@ export function formatTaskFocus(state: TaskState): string {
 	return lines.join("\n");
 }
 
+export function buildTaskResume(state: TaskState): TaskResumeContext {
+	const task = state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
+	if (!task) {
+		return {
+			currentStepLineage: [],
+			evidenceIds: [],
+			criterionIds: [],
+			allowedActions: [],
+			nextAllowedActions: ["task_plan"],
+			verificationGaps: [],
+			blockers: [],
+			decisions: [],
+			warnings: [...state.warnings],
+			resumeInstruction:
+				"No active pi-tasks task. Create one with task_plan before implementation work.",
+		};
+	}
+	const step = getCurrentOpenStep(task);
+	const gaps = getVerificationGaps(task);
+	const blockers = task.blockers
+		.filter((blocker) => !blocker.resolvedAt)
+		.map((blocker) => `${blocker.id}: ${blocker.reason}`);
+	const decisions = task.decisions
+		.slice(-3)
+		.map(
+			(decision) =>
+				`${decision.id}: ${decision.question} -> ${decision.decision}`,
+		);
+	const nextAllowedActions = step
+		? getNextAllowedActions(step, blockers.length > 0)
+		: ["task_complete"];
+	return {
+		...(state.activeTaskId ? { activeTaskId: state.activeTaskId } : {}),
+		taskId: task.id,
+		title: task.title,
+		status: task.status,
+		progress: task.progress,
+		...(step
+			? {
+					currentStepId: step.id,
+					currentStepText: step.text,
+					currentStepLineage: getStepLineage(task, step),
+					expectedOutput: step.expectedOutput,
+					evidenceRequired: step.evidenceRequired,
+					evidenceIds: [...step.evidenceIds],
+					criterionIds: [...step.criterionIds],
+					allowedActions: [...step.allowedActions],
+				}
+			: {
+					currentStepLineage: [],
+					evidenceIds: [],
+					criterionIds: [],
+					allowedActions: [],
+				}),
+		nextAllowedActions,
+		verificationGaps: gaps,
+		blockers,
+		decisions,
+		warnings: [...state.warnings, ...task.warnings],
+		resumeInstruction: buildResumeInstruction(
+			task,
+			step,
+			gaps,
+			nextAllowedActions,
+		),
+	};
+}
+
+export function formatTaskResume(state: TaskState): string {
+	const resume = buildTaskResume(state);
+	const lines = ["pi-tasks resume"];
+	if (!resume.taskId) {
+		lines.push(`Instruction: ${resume.resumeInstruction}`);
+		return lines.join("\n");
+	}
+	lines.push(
+		`Task: ${resume.taskId} [${resume.status}] ${resume.progress}% - ${resume.title}`,
+	);
+	if (resume.currentStepId) {
+		lines.push(
+			`Current step: ${resume.currentStepId} ${resume.currentStepText ?? ""}`,
+		);
+		if (resume.currentStepLineage.length > 0) {
+			lines.push(
+				`Lineage: ${resume.currentStepLineage.map((step) => `${step.id}:${step.decompositionStatus}`).join(" > ")}`,
+			);
+		}
+		if (resume.expectedOutput) {
+			lines.push(`Expected output: ${resume.expectedOutput}`);
+		}
+		lines.push(
+			`Evidence: ${resume.evidenceIds.length ? resume.evidenceIds.join(",") : "none"}${resume.evidenceRequired ? " (required)" : ""}`,
+		);
+		if (resume.criterionIds.length > 0) {
+			lines.push(`Linked criteria: ${resume.criterionIds.join(",")}`);
+		}
+		if (resume.allowedActions.length > 0) {
+			lines.push(`Allowed actions: ${resume.allowedActions.join(", ")}`);
+		}
+	} else {
+		lines.push("Current step: none open");
+	}
+	lines.push(`Next allowed actions: ${resume.nextAllowedActions.join(", ")}`);
+	if (resume.verificationGaps.length > 0) {
+		lines.push(`Cannot complete yet: ${resume.verificationGaps.join("; ")}`);
+	}
+	if (resume.blockers.length > 0) {
+		lines.push(`Blockers: ${resume.blockers.join("; ")}`);
+	}
+	if (resume.decisions.length > 0) {
+		lines.push(`Recent decisions: ${resume.decisions.join("; ")}`);
+	}
+	if (resume.warnings.length > 0) {
+		lines.push(`Warnings: ${resume.warnings.join("; ")}`);
+	}
+	lines.push(`Instruction: ${resume.resumeInstruction}`);
+	return lines.join("\n");
+}
+
 export function getVerificationGaps(task: Task): string[] {
 	const gaps: string[] = [];
 	const incompleteStep = (task.planSteps ?? []).find(
@@ -196,6 +322,76 @@ export function getVerificationGaps(task: Task): string[] {
 		gaps.push("only not_verified evidence");
 	}
 	return gaps;
+}
+
+function getCurrentOpenStep(task: Task): TaskStep | undefined {
+	return task.planSteps.find(
+		(step) => step.status !== "done" && step.status !== "skipped",
+	);
+}
+
+function getNextAllowedActions(step: TaskStep, hasBlockers: boolean): string[] {
+	if (hasBlockers) return ["task_update"];
+	if (step.decompositionStatus !== "atomic") {
+		return ["task_decompose", "task_decision", "task_update"];
+	}
+	if (step.evidenceRequired && step.evidenceIds.length === 0) {
+		return [...step.allowedActions, "task_evidence"].filter(Boolean);
+	}
+	return ["task_update", "task_evidence", ...step.allowedActions].filter(
+		Boolean,
+	);
+}
+
+function getStepLineage(task: Task, step: TaskStep): TaskResumeStep[] {
+	const lineage: TaskResumeStep[] = [];
+	let current: TaskStep | undefined = step;
+	while (current) {
+		lineage.unshift({
+			id: current.id,
+			text: current.text,
+			status: current.status,
+			decompositionStatus: current.decompositionStatus,
+		});
+		if (!current.parentStepId) break;
+		const parent = task.planSteps.find(
+			(candidate) => candidate.id === current?.parentStepId,
+		);
+		if (!parent) {
+			lineage.unshift({
+				id: current.parentStepId,
+				text: "decomposed parent step",
+				status: "done",
+				decompositionStatus: "breaking_down",
+			});
+			break;
+		}
+		current = parent;
+	}
+	return lineage;
+}
+
+function buildResumeInstruction(
+	task: Task,
+	step: TaskStep | undefined,
+	gaps: string[],
+	nextAllowedActions: string[],
+): string {
+	if (task.status === "blocked") {
+		return "Resolve the blocker with task_update before continuing execution.";
+	}
+	if (!step) {
+		return gaps.length > 0
+			? "No open step remains, but verification gaps remain. Resolve gaps before task_complete."
+			: "No open step remains. Use task_complete with supporting evidence.";
+	}
+	if (step.decompositionStatus !== "atomic") {
+		return `Resume by decomposing ${step.id}; do not execute or mark it done until it is atomic.`;
+	}
+	if (step.evidenceRequired && step.evidenceIds.length === 0) {
+		return `Resume ${step.id} by performing one allowed action, then record step-scoped evidence with task_evidence.step_ids before task_update done.`;
+	}
+	return `Resume ${step.id} with ${nextAllowedActions.join(" or ")}; keep ordered step progression.`;
 }
 
 function countCriteria(

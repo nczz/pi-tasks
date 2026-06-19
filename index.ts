@@ -1,6 +1,7 @@
 import { registerTaskCommands } from "./src/commands.ts";
 import type { ExtensionAPI, ExtensionContext } from "./src/pi-types.ts";
-import { createTaskRuntimeStore } from "./src/store.ts";
+import { buildTaskResume } from "./src/render.ts";
+import { createTaskRuntimeStore, snapshotState } from "./src/store.ts";
 import { registerTaskTools } from "./src/tools.ts";
 import { updateTaskUi } from "./src/widget.ts";
 
@@ -31,7 +32,8 @@ export default function (pi: ExtensionAPI) {
 				taskId: state.activeTaskId ?? "snapshot",
 				createdAt,
 				source: "system",
-				state: { ...state, events: [] },
+				state: snapshotState(state),
+				resume: buildTaskResume(state),
 				reason: "compaction",
 			});
 		}

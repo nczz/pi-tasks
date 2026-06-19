@@ -14,9 +14,14 @@ import type {
 	VerificationLevel,
 } from "./model.ts";
 import type { ExtensionAPI, ExtensionContext, ToolResult } from "./pi-types.ts";
-import { formatTaskFocus, formatTaskList } from "./render.ts";
+import {
+	buildTaskResume,
+	formatTaskFocus,
+	formatTaskList,
+	formatTaskResume,
+} from "./render.ts";
 import { Type } from "./schema.ts";
-import { errorText, type TaskRuntimeStore } from "./store.ts";
+import { errorText, snapshotState, type TaskRuntimeStore } from "./store.ts";
 import { updateTaskUi } from "./widget.ts";
 
 const TASK_STATUSES = [
@@ -73,6 +78,10 @@ interface TaskListParams extends Record<string, unknown> {
 	include_done?: boolean;
 	include_evidence?: boolean;
 	limit?: number;
+}
+
+interface TaskCheckpointParams extends Record<string, unknown> {
+	reason?: string;
 }
 
 interface TaskUpdateParams extends Record<string, unknown> {
@@ -226,6 +235,65 @@ export function registerTaskTools(
 		parameters: Type.Object({}),
 		execute: async () =>
 			textResult(formatTaskFocus(store.getState()), store.getState()),
+	});
+
+	pi.registerTool<Record<string, never>>({
+		name: "task_resume",
+		label: "Task Resume",
+		description:
+			"Return the compact resume contract needed to continue work after context compaction or session resume.",
+		promptSnippet:
+			"Resume pi-tasks work from the current compact execution contract before acting",
+		promptGuidelines: [
+			"Call task_resume after context compaction, session resume, or when unsure what to do next.",
+			"Follow next allowed actions; do not complete tasks while verification gaps remain.",
+			"Use task_decompose when the resume instruction says the current step is not atomic.",
+		],
+		parameters: Type.Object({}),
+		execute: async () =>
+			textResult(
+				formatTaskResume(store.getState()),
+				buildTaskResume(store.getState()),
+			),
+	});
+
+	pi.registerTool<TaskCheckpointParams>({
+		name: "task_checkpoint",
+		label: "Task Checkpoint",
+		description:
+			"Persist a compact pi-tasks snapshot with resume fields for compaction-safe continuation.",
+		promptSnippet:
+			"Create a pi-tasks checkpoint before risky context transitions or long pauses",
+		promptGuidelines: [
+			"Use task_checkpoint before long-running work, major decomposition changes, or when the user asks for a restartable handoff.",
+			"Checkpoint is not evidence and does not satisfy acceptance criteria.",
+		],
+		parameters: Type.Object({
+			reason: Type.Optional(Type.String()),
+		}),
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			const state = store.getState();
+			if (Object.keys(state.tasks).length === 0) {
+				return textResult("No pi-tasks state to checkpoint.", state);
+			}
+			const event = baseEvent(
+				"task.snapshot",
+				state.activeTaskId ?? "snapshot",
+				ctx,
+				{
+					state: snapshotState(state),
+					resume: buildTaskResume(state),
+					reason: "manual",
+				},
+			);
+			return appendAndReport(
+				pi,
+				store,
+				ctx,
+				event,
+				`Checkpointed pi-tasks state${params.reason ? `: ${params.reason}` : ""}`,
+			);
+		},
 	});
 
 	pi.registerTool<TaskGranularityCheckParams>({

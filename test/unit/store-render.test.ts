@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { TASK_EVENT_CUSTOM_TYPE, type TaskEvent } from "../../src/model.ts";
 import {
+	buildTaskResume,
 	formatStatusText,
 	formatTaskFocus,
 	formatTaskList,
+	formatTaskResume,
 	formatWidgetLines,
 } from "../../src/render.ts";
-import { replayBranchEntries } from "../../src/store.ts";
+import { replayBranchEntries, snapshotState } from "../../src/store.ts";
 
 const createEvent: TaskEvent = {
 	version: 1,
@@ -53,6 +55,81 @@ const blockEvent: TaskEvent = {
 		blockedBy: "external",
 		neededToUnblock: "Approval received",
 	},
+};
+
+const coarseEvent: TaskEvent = {
+	version: 1,
+	id: "T2-created",
+	type: "task.created",
+	taskId: "T2",
+	createdAt: "2026-06-18T00:00:00.000Z",
+	source: "tool",
+	title: "Compaction resume",
+	objective: "Verify resume after compaction",
+	acceptanceCriteria: ["resume restores child step"],
+	planSteps: [
+		{
+			text: "Prepare release",
+			expectedOutput: "Release is prepared",
+			criterionIds: ["T2-AC1"],
+			evidenceRequired: true,
+			allowedActions: ["inspect", "test"],
+			granularityCheck: {
+				isAtomic: false,
+				reason: "Contains multiple hidden subtasks",
+				canBeDoneInOneAgentAction: false,
+				hasSingleObservableOutput: false,
+				hasSingleVerificationMethod: false,
+				hasNoHiddenSubtasks: false,
+			},
+		},
+	],
+	activate: true,
+};
+
+const decomposeEvent: TaskEvent = {
+	version: 1,
+	id: "T2-decompose",
+	type: "task.steps_decomposed",
+	taskId: "T2",
+	createdAt: "2026-06-18T00:01:00.000Z",
+	source: "tool",
+	parentStepId: "T2-S1",
+	reason: "Create atomic resume steps",
+	childSteps: [
+		{
+			text: "Run resume smoke",
+			expectedOutput: "Resume smoke passes",
+			criterionIds: ["T2-AC1"],
+			evidenceRequired: true,
+			allowedActions: ["run smoke"],
+			decompositionStatus: "atomic",
+			granularityCheck: {
+				isAtomic: true,
+				reason: "Single resume smoke check",
+				canBeDoneInOneAgentAction: true,
+				hasSingleObservableOutput: true,
+				hasSingleVerificationMethod: true,
+				hasNoHiddenSubtasks: true,
+			},
+		},
+		{
+			text: "Record resume evidence",
+			expectedOutput: "Evidence is linked",
+			criterionIds: ["T2-AC1"],
+			evidenceRequired: true,
+			allowedActions: ["task_evidence"],
+			decompositionStatus: "atomic",
+			granularityCheck: {
+				isAtomic: true,
+				reason: "Single evidence recording step",
+				canBeDoneInOneAgentAction: true,
+				hasSingleObservableOutput: true,
+				hasSingleVerificationMethod: true,
+				hasNoHiddenSubtasks: true,
+			},
+		},
+	],
 };
 
 describe("store replay and render helpers", () => {
@@ -171,6 +248,99 @@ describe("store replay and render helpers", () => {
 		expect(output).toContain("Granularity: atomic");
 		expect(output).toContain("Expected output");
 		expect(output).toContain("Evidence: none (required)");
+	});
+
+	it("replays a compaction snapshot with resume fields for a decomposed step", () => {
+		const beforeSnapshot = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: coarseEvent },
+			{
+				type: "custom",
+				customType: TASK_EVENT_CUSTOM_TYPE,
+				data: decomposeEvent,
+			},
+		]).state;
+		const snapshot: TaskEvent = {
+			version: 1,
+			id: "T2-snapshot",
+			type: "task.snapshot",
+			taskId: "T2",
+			createdAt: "2026-06-18T00:02:00.000Z",
+			source: "system",
+			state: snapshotState(beforeSnapshot),
+			resume: buildTaskResume(beforeSnapshot),
+			reason: "compaction",
+		};
+		const result = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: snapshot },
+		]);
+		const output = formatTaskResume(result.state);
+		expect(result.state.activeTaskId).toBe("T2");
+		expect(output).toContain("Current step: T2-S1.1");
+		expect(output).toContain("Lineage: T2-S1:breaking_down > T2-S1.1:atomic");
+		expect(output).toContain("task_evidence.step_ids");
+		expect(snapshot.resume.currentStepId).toBe("T2-S1.1");
+	});
+
+	it("continues replay correctly after a snapshot checkpoint", () => {
+		const beforeSnapshot = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: coarseEvent },
+			{
+				type: "custom",
+				customType: TASK_EVENT_CUSTOM_TYPE,
+				data: decomposeEvent,
+			},
+		]).state;
+		const snapshot: TaskEvent = {
+			version: 1,
+			id: "T2-snapshot",
+			type: "task.snapshot",
+			taskId: "T2",
+			createdAt: "2026-06-18T00:02:00.000Z",
+			source: "system",
+			state: snapshotState(beforeSnapshot),
+			resume: buildTaskResume(beforeSnapshot),
+			reason: "manual",
+		};
+		const evidenceEvent: TaskEvent = {
+			version: 1,
+			id: "T2-evidence",
+			type: "task.evidence_added",
+			taskId: "T2",
+			createdAt: "2026-06-18T00:03:00.000Z",
+			source: "tool",
+			evidence: {
+				id: "E1",
+				type: "test",
+				level: "unit_test",
+				summary: "resume smoke passed",
+				passed: true,
+				references: ["npm test"],
+			},
+			criterionIds: ["T2-AC1"],
+			stepIds: ["T2-S1.1"],
+		};
+		const doneEvent: TaskEvent = {
+			version: 1,
+			id: "T2-step-done",
+			type: "task.updated",
+			taskId: "T2",
+			createdAt: "2026-06-18T00:04:00.000Z",
+			source: "tool",
+			stepId: "T2-S1.1",
+			stepStatus: "done",
+		};
+		const result = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: snapshot },
+			{
+				type: "custom",
+				customType: TASK_EVENT_CUSTOM_TYPE,
+				data: evidenceEvent,
+			},
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: doneEvent },
+		]);
+		expect(result.state.tasks.T2?.planSteps[0]?.status).toBe("done");
+		expect(result.state.tasks.T2?.planSteps[0]?.evidenceIds).toEqual(["E1"]);
+		expect(formatTaskResume(result.state)).toContain("Current step: T2-S1.2");
 	});
 
 	it("includes unresolved blocker details when evidence details are requested", () => {

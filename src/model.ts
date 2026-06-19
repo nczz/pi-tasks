@@ -144,6 +144,35 @@ export interface Task {
 	warnings: string[];
 }
 
+export interface TaskResumeStep {
+	id: string;
+	text: string;
+	status: TaskStepStatus;
+	decompositionStatus: TaskStepGranularityStatus;
+}
+
+export interface TaskResumeContext {
+	activeTaskId?: string;
+	taskId?: string;
+	title?: string;
+	status?: TaskStatus;
+	progress?: number;
+	currentStepId?: string;
+	currentStepText?: string;
+	currentStepLineage: TaskResumeStep[];
+	expectedOutput?: string;
+	evidenceRequired?: boolean;
+	evidenceIds: string[];
+	criterionIds: string[];
+	allowedActions: string[];
+	nextAllowedActions: string[];
+	verificationGaps: string[];
+	blockers: string[];
+	decisions: string[];
+	warnings: string[];
+	resumeInstruction: string;
+}
+
 export interface TaskState {
 	tasks: Record<string, Task>;
 	activeTaskId?: string;
@@ -233,6 +262,7 @@ export interface TaskCancelledEvent extends TaskEventBase {
 export interface TaskSnapshotEvent extends TaskEventBase {
 	type: "task.snapshot";
 	state: Omit<TaskState, "events">;
+	resume: TaskResumeContext;
 	reason: "compaction" | "resume_repair" | "manual";
 }
 

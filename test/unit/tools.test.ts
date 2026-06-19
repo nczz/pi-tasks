@@ -82,6 +82,7 @@ describe("registered task tools", () => {
 		const evidence = requireTool(tools, "task_evidence");
 		const complete = requireTool(tools, "task_complete");
 		const focus = requireTool(tools, "task_focus");
+		const resume = requireTool(tools, "task_resume");
 
 		await execute(
 			plan,
@@ -116,6 +117,9 @@ describe("registered task tools", () => {
 		const focused = await execute(focus, {}, ctx);
 		expect(focused.content[0]?.text).toContain("Current step: T1-S1");
 		expect(focused.content[0]?.text).toContain("Expected output");
+		const resumed = await execute(resume, {}, ctx);
+		expect(resumed.content[0]?.text).toContain("pi-tasks resume");
+		expect(resumed.content[0]?.text).toContain("Current step: T1-S1");
 		await execute(
 			update,
 			{ task_id: "T1", progress: 50, next_action: "attach evidence" },
@@ -264,5 +268,49 @@ describe("registered task tools", () => {
 		expect(store.getState().tasks.T1?.planSteps[0]?.id).toBe("T1-S1.1");
 		expect(store.getState().tasks.T1?.planSteps[0]?.status).toBe("active");
 		expect(store.getState().tasks.T1?.currentStep).toBe("Run package dry-run");
+	});
+
+	it("checkpoints resume state as a snapshot custom entry", async () => {
+		const { tools, entries, ctx } = createHarness();
+		const plan = requireTool(tools, "task_plan");
+		const checkpoint = requireTool(tools, "task_checkpoint");
+		await execute(
+			plan,
+			{
+				title: "Checkpoint",
+				objective: "Verify checkpoint",
+				acceptance_criteria: ["checkpoint exists"],
+				plan_steps: [
+					{
+						text: "Create checkpoint",
+						expectedOutput: "Snapshot includes resume",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["task_checkpoint"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single checkpoint action",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+				],
+			},
+			ctx,
+		);
+		const result = await execute(
+			checkpoint,
+			{ reason: "before compaction" },
+			ctx,
+		);
+		expect(result.content[0]?.text).toContain("Checkpointed");
+		expect(entries.at(-1)?.type).toBe("task.snapshot");
+		expect(
+			entries.at(-1)?.type === "task.snapshot" &&
+				entries.at(-1).resume.currentStepId,
+		).toBe("T1-S1");
 	});
 });
