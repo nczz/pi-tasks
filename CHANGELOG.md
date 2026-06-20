@@ -7,9 +7,15 @@
 - Tool `details` now carry compact resume context instead of full task state for normal tool responses.
 - `/tasks` now defaults to compact task summaries; `/tasks detail` explicitly requests full task details.
 - Detailed task/evidence rendering now truncates long text and references to keep debug output bounded.
+- Rejection responses now include structured recovery details with `retry_with`, `minimum_params`, and `do_not_retry_same_call`.
+- Atomic plan quality scoring now rejects obvious compound wording in atomic step text, expected output, and allowed actions.
+- Evidence recording now enforces current-step lock unless `override_reason` is supplied.
+- Evidence quality now enforces text budgets for summaries, references, artifact refs, command strings, source strings, and observed output.
 
 ### Added
 - Unit coverage for compact `/tasks`, explicit detail mode, compact tool `details`, and bounded evidence rendering.
+- Added `task_next` for weak or small-context models to get one recommended next tool, current-step lock, blocked tools, and minimum params.
+- Unit coverage for `task_next`, structured rejection recovery, compound atomic rejection, evidence budgets, and current-step evidence locking.
 
 ## [0.1.1] - 2026-06-19
 

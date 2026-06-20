@@ -16,6 +16,14 @@ import {
 const TERMINAL_STATUSES: TaskStatus[] = ["done", "cancelled"];
 const MAX_DECOMPOSITION_DEPTH = 4;
 const MIN_PLAN_QUALITY_SCORE = 80;
+const MAX_EVIDENCE_SUMMARY_LENGTH = 500;
+const MAX_EVIDENCE_OBSERVED_OUTPUT_LENGTH = 1000;
+const MAX_EVIDENCE_REFERENCE_LENGTH = 300;
+const COMPOUND_STEP_PATTERNS = [
+	/\b(and|then|also|plus|after that)\b/i,
+	/[;&]/,
+	/並且|然後|接著|以及|同時|再來/,
+];
 const VAGUE_PLAN_PATTERNS = [
 	/\b(do|handle|fix|improve|update|implement|complete|work on|deal with)\b/i,
 	/完成(全部|所有|整個)?/,
@@ -286,9 +294,19 @@ function addEvidence(
 	const duplicate = findDuplicateEvidence(task, evidence);
 	if (duplicate) {
 		linkEvidenceToCriteria(task, duplicate, event.criterionIds ?? []);
-		linkEvidenceToSteps(task, duplicate, event.stepIds ?? []);
+		linkEvidenceToSteps(
+			task,
+			duplicate,
+			event.stepIds ?? [],
+			event.overrideReason,
+		);
 		if (!event.stepIds || event.stepIds.length === 0) {
-			linkEvidenceToMatchingSteps(task, duplicate, event.criterionIds ?? []);
+			linkEvidenceToMatchingSteps(
+				task,
+				duplicate,
+				event.criterionIds ?? [],
+				event.overrideReason,
+			);
 		}
 		recalculateProgress(task);
 		task.updatedAt = event.createdAt;
@@ -296,9 +314,19 @@ function addEvidence(
 	}
 	task.evidence.push(evidence);
 	linkEvidenceToCriteria(task, evidence, event.criterionIds ?? []);
-	linkEvidenceToSteps(task, evidence, event.stepIds ?? []);
+	linkEvidenceToSteps(
+		task,
+		evidence,
+		event.stepIds ?? [],
+		event.overrideReason,
+	);
 	if (!event.stepIds || event.stepIds.length === 0) {
-		linkEvidenceToMatchingSteps(task, evidence, event.criterionIds ?? []);
+		linkEvidenceToMatchingSteps(
+			task,
+			evidence,
+			event.criterionIds ?? [],
+			event.overrideReason,
+		);
 	}
 	recalculateProgress(task);
 	task.updatedAt = event.createdAt;
@@ -326,6 +354,7 @@ function linkEvidenceToMatchingSteps(
 	task: Task,
 	evidence: TaskEvidence,
 	criterionIds: string[],
+	overrideReason?: string,
 ): void {
 	if (criterionIds.length === 0) return;
 	const matchingSteps = task.planSteps.filter((step) =>
@@ -333,7 +362,10 @@ function linkEvidenceToMatchingSteps(
 	);
 	if (matchingSteps.length === 1) {
 		const step = matchingSteps[0];
-		if (step) step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
+		if (step) {
+			validateEvidenceStepLock(task, [step.id], overrideReason);
+			step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
+		}
 	}
 }
 
@@ -341,10 +373,30 @@ function linkEvidenceToSteps(
 	task: Task,
 	evidence: TaskEvidence,
 	stepIds: string[],
+	overrideReason?: string,
 ): void {
+	validateEvidenceStepLock(task, stepIds, overrideReason);
 	for (const stepId of stepIds) {
 		const step = requireStep(task, stepId);
 		step.evidenceIds = unique([...step.evidenceIds, evidence.id]);
+	}
+}
+
+function validateEvidenceStepLock(
+	task: Task,
+	stepIds: string[],
+	overrideReason?: string,
+): void {
+	if (stepIds.length === 0) return;
+	const currentStep = getCurrentOpenStep(task);
+	if (!currentStep) return;
+	const outsideCurrentStep = stepIds.filter(
+		(stepId) => stepId !== currentStep.id,
+	);
+	if (outsideCurrentStep.length > 0 && !overrideReason?.trim()) {
+		throw new TaskTransitionError(
+			`Evidence step_ids must target current step ${currentStep.id}; overrideReason is required for ${outsideCurrentStep.join(",")}`,
+		);
 	}
 }
 
@@ -558,6 +610,17 @@ function assessPlanQuality(step: {
 	if (step.allowedActions.some((action) => containsVaguePattern(action))) {
 		issues.push("allowedActions contain vague actions");
 	}
+	if (containsCompoundStepPattern(step.text)) {
+		issues.push("step text appears to contain multiple actions");
+	}
+	if (containsCompoundStepPattern(step.expectedOutput)) {
+		issues.push("expected output appears to contain multiple outputs");
+	}
+	if (
+		step.allowedActions.some((action) => containsCompoundStepPattern(action))
+	) {
+		issues.push("allowedActions must each be a single action");
+	}
 	if (step.criterionIds.length === 0)
 		issues.push("at least one criterion link is required");
 	if (!step.evidenceRequired) issues.push("evidenceRequired must be true");
@@ -579,6 +642,10 @@ function assessPlanQuality(step: {
 
 function containsVaguePattern(value: string): boolean {
 	return VAGUE_PLAN_PATTERNS.some((pattern) => pattern.test(value.trim()));
+}
+
+function containsCompoundStepPattern(value: string): boolean {
+	return COMPOUND_STEP_PATTERNS.some((pattern) => pattern.test(value.trim()));
 }
 
 function normalizeGranularityCheck(step: TaskStepInput): TaskGranularityCheck {
@@ -1005,6 +1072,46 @@ function deriveProgress(task: Task): number {
 function validateEvidence(evidence: TaskEvidence): void {
 	if (!evidence.summary.trim())
 		throw new TaskTransitionError("Evidence summary is required");
+	if (evidence.summary.length > MAX_EVIDENCE_SUMMARY_LENGTH) {
+		throw new TaskTransitionError(
+			`Evidence summary exceeds ${MAX_EVIDENCE_SUMMARY_LENGTH} characters; put long output in artifactRefs`,
+		);
+	}
+	for (const reference of evidence.references) {
+		if (reference.length > MAX_EVIDENCE_REFERENCE_LENGTH) {
+			throw new TaskTransitionError(
+				`Evidence reference exceeds ${MAX_EVIDENCE_REFERENCE_LENGTH} characters; use a shorter artifact path or command reference`,
+			);
+		}
+	}
+	for (const artifactRef of evidence.quality.artifactRefs) {
+		if (artifactRef.length > MAX_EVIDENCE_REFERENCE_LENGTH) {
+			throw new TaskTransitionError(
+				`Evidence artifactRef exceeds ${MAX_EVIDENCE_REFERENCE_LENGTH} characters; use a shorter artifact path`,
+			);
+		}
+	}
+	if (evidence.quality.source.length > MAX_EVIDENCE_REFERENCE_LENGTH) {
+		throw new TaskTransitionError(
+			`Evidence source exceeds ${MAX_EVIDENCE_REFERENCE_LENGTH} characters`,
+		);
+	}
+	if (
+		evidence.quality.command &&
+		evidence.quality.command.length > MAX_EVIDENCE_REFERENCE_LENGTH
+	) {
+		throw new TaskTransitionError(
+			`Evidence command exceeds ${MAX_EVIDENCE_REFERENCE_LENGTH} characters; store full command in an artifact if needed`,
+		);
+	}
+	if (
+		evidence.quality.observedOutput &&
+		evidence.quality.observedOutput.length > MAX_EVIDENCE_OBSERVED_OUTPUT_LENGTH
+	) {
+		throw new TaskTransitionError(
+			`Evidence observedOutput exceeds ${MAX_EVIDENCE_OBSERVED_OUTPUT_LENGTH} characters; store long logs in artifactRefs`,
+		);
+	}
 	if (
 		evidence.passed === true &&
 		evidence.type !== "note" &&

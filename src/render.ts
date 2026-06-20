@@ -1,5 +1,6 @@
 import type {
 	Task,
+	TaskExecutionMode,
 	TaskResumeContext,
 	TaskResumeStep,
 	TaskState,
@@ -190,6 +191,15 @@ export function buildTaskResume(state: TaskState): TaskResumeContext {
 	const task = state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
 	if (!task) {
 		return {
+			mode: "planning",
+			recommendedTool: "task_plan",
+			blockedTools: ["task_update", "task_evidence", "task_complete"],
+			minimumParams: {
+				title: "<short task title>",
+				objective: "<bounded objective>",
+				acceptance_criteria: ["<verifiable criterion>"],
+				plan_steps: ["<atomic step contract>"],
+			},
 			currentStepLineage: [],
 			evidenceIds: [],
 			criterionIds: [],
@@ -217,12 +227,18 @@ export function buildTaskResume(state: TaskState): TaskResumeContext {
 	const nextAllowedActions = step
 		? getNextAllowedActions(step, blockers.length > 0)
 		: ["task_complete"];
+	const mode = getExecutionMode(task, step, blockers.length > 0, gaps);
+	const recommendedTool = getRecommendedTool(mode, step);
 	return {
 		...(state.activeTaskId ? { activeTaskId: state.activeTaskId } : {}),
 		taskId: task.id,
 		title: compactDetail(task.title),
 		status: task.status,
 		progress: task.progress,
+		mode,
+		recommendedTool,
+		blockedTools: getBlockedTools(mode),
+		minimumParams: getMinimumParams(task, step, recommendedTool),
 		...(step
 			? {
 					currentStepId: step.id,
@@ -264,6 +280,13 @@ export function formatTaskResume(state: TaskState): string {
 	lines.push(
 		`Task: ${resume.taskId} [${resume.status}] ${resume.progress}% - ${resume.title}`,
 	);
+	if (resume.mode) lines.push(`Mode: ${resume.mode}`);
+	if (resume.recommendedTool) {
+		lines.push(`Do now: ${resume.recommendedTool}`);
+	}
+	if (resume.blockedTools && resume.blockedTools.length > 0) {
+		lines.push(`Do not call: ${resume.blockedTools.join(", ")}`);
+	}
 	if (resume.currentStepId) {
 		lines.push(
 			`Current step: ${resume.currentStepId} ${resume.currentStepText ?? ""}`,
@@ -288,6 +311,9 @@ export function formatTaskResume(state: TaskState): string {
 	} else {
 		lines.push("Current step: none open");
 	}
+	if (resume.minimumParams) {
+		lines.push(`Minimum params: ${formatMinimumParams(resume.minimumParams)}`);
+	}
 	lines.push(`Next allowed actions: ${resume.nextAllowedActions.join(", ")}`);
 	if (resume.verificationGaps.length > 0) {
 		lines.push(`Cannot complete yet: ${resume.verificationGaps.join("; ")}`);
@@ -302,6 +328,40 @@ export function formatTaskResume(state: TaskState): string {
 		lines.push(`Warnings: ${resume.warnings.join("; ")}`);
 	}
 	lines.push(`Instruction: ${resume.resumeInstruction}`);
+	return lines.join("\n");
+}
+
+export function formatTaskNext(state: TaskState): string {
+	const resume = buildTaskResume(state);
+	const lines = ["pi-tasks next"];
+	if (!resume.taskId) {
+		lines.push("Mode: planning");
+		lines.push("Do now: task_plan");
+		lines.push("Do not call: task_update, task_evidence, task_complete");
+		lines.push(
+			`Minimum params: ${formatMinimumParams(resume.minimumParams ?? {})}`,
+		);
+		lines.push(`Stop condition: ${resume.resumeInstruction}`);
+		return lines.join("\n");
+	}
+	lines.push(`Task: ${resume.taskId} - ${resume.title}`);
+	lines.push(`Mode: ${resume.mode ?? "executing"}`);
+	lines.push(
+		`Only next tool: ${resume.recommendedTool ?? resume.nextAllowedActions[0] ?? "task_resume"}`,
+	);
+	if (resume.currentStepId) {
+		lines.push(`Current step lock: ${resume.currentStepId}`);
+	}
+	if (resume.minimumParams) {
+		lines.push(`Minimum params: ${formatMinimumParams(resume.minimumParams)}`);
+	}
+	if (resume.blockedTools && resume.blockedTools.length > 0) {
+		lines.push(`Do not call: ${resume.blockedTools.join(", ")}`);
+	}
+	lines.push(`Stop condition: ${resume.resumeInstruction}`);
+	if (resume.verificationGaps.length > 0) {
+		lines.push(`Gaps: ${resume.verificationGaps.join("; ")}`);
+	}
 	return lines.join("\n");
 }
 
@@ -362,6 +422,83 @@ function getNextAllowedActions(step: TaskStep, hasBlockers: boolean): string[] {
 	return ["task_update", "task_evidence", ...step.allowedActions].filter(
 		Boolean,
 	);
+}
+
+function getExecutionMode(
+	task: Task,
+	step: TaskStep | undefined,
+	hasBlockers: boolean,
+	gaps: string[],
+): TaskExecutionMode {
+	if (hasBlockers || task.status === "blocked") return "blocked";
+	if (!step) return gaps.length > 0 ? "verifying" : "completing";
+	if (step.decompositionStatus !== "atomic") return "decomposing";
+	if (step.evidenceRequired && step.evidenceIds.length === 0)
+		return "verifying";
+	return "executing";
+}
+
+function getRecommendedTool(
+	mode: TaskExecutionMode,
+	step: TaskStep | undefined,
+): string {
+	if (mode === "planning") return "task_plan";
+	if (mode === "blocked") return "task_update";
+	if (mode === "decomposing") return "task_decompose";
+	if (mode === "verifying") return "task_evidence";
+	if (mode === "completing") return "task_complete";
+	return step?.allowedActions[0] ?? "task_update";
+}
+
+function getBlockedTools(mode: TaskExecutionMode): string[] {
+	if (mode === "planning")
+		return ["task_update", "task_evidence", "task_complete"];
+	if (mode === "blocked") return ["task_complete", "task_decompose"];
+	if (mode === "decomposing") return ["task_update done", "task_complete"];
+	if (mode === "verifying") return ["task_update done", "task_complete"];
+	if (mode === "completing") return ["task_plan", "task_decompose"];
+	return ["task_complete"];
+}
+
+function getMinimumParams(
+	task: Task,
+	step: TaskStep | undefined,
+	recommendedTool: string,
+): Record<string, unknown> {
+	if (recommendedTool === "task_decompose" && step) {
+		return {
+			task_id: task.id,
+			step_id: step.id,
+			child_steps: ["<2+ atomic child steps>"],
+		};
+	}
+	if (recommendedTool === "task_evidence") {
+		return {
+			task_id: task.id,
+			step_ids: step ? [step.id] : ["<current step id>"],
+			criterion_ids: step?.criterionIds ?? [],
+			references: ["<artifact path or command>"],
+		};
+	}
+	if (recommendedTool === "task_update" && step) {
+		return {
+			task_id: task.id,
+			step_id: step.id,
+			step_status: "done",
+			step_evidence_ids: ["<evidence id>"],
+		};
+	}
+	if (recommendedTool === "task_complete") {
+		return {
+			task_id: task.id,
+			evidence_ids: task.evidence.map((evidence) => evidence.id),
+		};
+	}
+	return { task_id: task.id };
+}
+
+function formatMinimumParams(params: Record<string, unknown>): string {
+	return JSON.stringify(params);
 }
 
 function getStepLineage(task: Task, step: TaskStep): TaskResumeStep[] {

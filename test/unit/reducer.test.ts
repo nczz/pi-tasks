@@ -209,6 +209,27 @@ describe("task reducer", () => {
 		expect(state.tasks.T1.currentStep).toBe("Run package dry-run");
 	});
 
+	it("rejects compound atomic step wording", () => {
+		expect(() =>
+			apply([
+				{
+					...created(),
+					planSteps: [
+						{
+							text: "Run tests and update docs",
+							expectedOutput: "Test result is recorded",
+							criterionIds: ["T1-AC1"],
+							evidenceRequired: true,
+							allowedActions: ["npm test"],
+							decompositionStatus: "atomic",
+							granularityCheck: atomicCheck,
+						},
+					],
+				},
+			]),
+		).toThrow("multiple actions");
+	});
+
 	it("does not auto-link criterion evidence to multiple matching child steps", () => {
 		const sharedCriterionDecompose: TaskEvent = {
 			...decompose(),
@@ -463,6 +484,55 @@ describe("task reducer", () => {
 				}),
 			]),
 		).toThrow("observedOutput is required");
+	});
+
+	it("rejects oversized evidence text", () => {
+		expect(() =>
+			apply([
+				created(),
+				evidence({
+					evidence: {
+						id: "E1",
+						type: "test",
+						level: "unit_test",
+						summary: "x".repeat(501),
+						passed: true,
+						references: ["npm test"],
+						quality: {
+							source: "vitest",
+							reproducible: true,
+							verifier: "tool",
+							artifactRefs: ["npm test"],
+							observedOutput: "Test suite passed",
+						},
+					},
+				}),
+			]),
+		).toThrow("summary exceeds");
+	});
+
+	it("locks evidence to the current step unless overrideReason is provided", () => {
+		expect(() =>
+			apply([
+				coarseCreated(),
+				decompose(),
+				evidence({
+					stepIds: ["T1-S1.2"],
+					criterionIds: ["T1-AC2"],
+				}),
+			]),
+		).toThrow("current step T1-S1.1");
+
+		const state = apply([
+			coarseCreated(),
+			decompose(),
+			evidence({
+				stepIds: ["T1-S1.2"],
+				criterionIds: ["T1-AC2"],
+				overrideReason: "Backfilling evidence from prior installed smoke",
+			}),
+		]);
+		expect(state.tasks.T1.planSteps[1]?.evidenceIds).toEqual(["E1"]);
 	});
 
 	it("rejects completion without evidence", () => {

@@ -19,6 +19,7 @@ import {
 	buildTaskResume,
 	formatTaskFocus,
 	formatTaskList,
+	formatTaskNext,
 	formatTaskResume,
 } from "./render.ts";
 import { Type } from "./schema.ts";
@@ -117,6 +118,7 @@ interface TaskEvidenceParams extends Record<string, unknown> {
 	criterion_ids?: string[];
 	step_ids?: string[];
 	quality?: EvidenceQuality;
+	override_reason?: string;
 }
 
 interface TaskDecisionParams extends Record<string, unknown> {
@@ -229,6 +231,26 @@ export function registerTaskTools(
 				`Created task ${taskId}: ${params.title}`,
 			);
 		},
+	});
+
+	pi.registerTool<Record<string, never>>({
+		name: "task_next",
+		label: "Task Next",
+		description:
+			"Return the single recommended next pi-tasks tool call for weak or small-context models.",
+		promptSnippet:
+			"Ask pi-tasks for the only next tool to call before continuing",
+		promptGuidelines: [
+			"Call task_next after rejection, compaction, branch navigation, or uncertainty.",
+			"Follow Only next tool and Current step lock exactly.",
+			"Do not call blocked tools listed by task_next.",
+		],
+		parameters: Type.Object({}),
+		execute: async () =>
+			textResult(
+				formatTaskNext(store.getState()),
+				buildTaskResume(store.getState()),
+			),
 	});
 
 	pi.registerTool<Record<string, never>>({
@@ -559,6 +581,12 @@ export function registerTaskTools(
 			criterion_ids: Type.Optional(Type.Array(Type.String())),
 			step_ids: Type.Optional(Type.Array(Type.String())),
 			quality: Type.Optional(evidenceQualitySchema()),
+			override_reason: Type.Optional(
+				Type.String({
+					description:
+						"Required only when attaching evidence outside the current step lock.",
+				}),
+			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const duplicate = findDuplicateEvidenceForParams(
@@ -587,6 +615,9 @@ export function registerTaskTools(
 				},
 				...(params.criterion_ids ? { criterionIds: params.criterion_ids } : {}),
 				...(params.step_ids ? { stepIds: params.step_ids } : {}),
+				...(params.override_reason
+					? { overrideReason: params.override_reason }
+					: {}),
 			});
 			const success = duplicate
 				? `Linked existing evidence ${duplicate.id} for task ${params.task_id}`
@@ -729,14 +760,38 @@ function appendAndReport(
 		);
 	} catch (error) {
 		const resume = formatTaskResume(store.getState());
+		const recovery = buildRejectionRecovery(error, store.getState());
 		return {
 			...textResult(
-				`Error: ${errorText(error)}\n\nRecovery guidance:\n${resume}`,
-				buildTaskResume(store.getState()),
+				[
+					`Error: ${errorText(error)}`,
+					"",
+					"Recovery:",
+					`- retry_with: ${recovery.retry_with}`,
+					`- do_not_retry_same_call: ${recovery.do_not_retry_same_call}`,
+					`- reason: ${recovery.reason}`,
+					"",
+					"Recovery guidance:",
+					resume,
+				].join("\n"),
+				recovery,
 			),
 			isError: true,
 		};
 	}
+}
+
+function buildRejectionRecovery(error: unknown, state: TaskState) {
+	const resume = buildTaskResume(state);
+	return {
+		rejected: true,
+		reason: errorText(error),
+		retry_with:
+			resume.recommendedTool ?? resume.nextAllowedActions[0] ?? "task_resume",
+		minimum_params: resume.minimumParams ?? {},
+		do_not_retry_same_call: true,
+		resume,
+	};
 }
 
 function selectTask(state: TaskState, taskId?: string): Task | undefined {

@@ -147,6 +147,7 @@ describe("registered task tools", () => {
 		const evidence = requireTool(tools, "task_evidence");
 		const complete = requireTool(tools, "task_complete");
 		const focus = requireTool(tools, "task_focus");
+		const next = requireTool(tools, "task_next");
 		const resume = requireTool(tools, "task_resume");
 
 		const created = await execute(
@@ -185,6 +186,9 @@ describe("registered task tools", () => {
 		const focused = await execute(focus, {}, ctx);
 		expect(focused.content[0]?.text).toContain("Current step: T1-S1");
 		expect(focused.content[0]?.text).toContain("Expected output");
+		const nextResult = await execute(next, {}, ctx);
+		expect(nextResult.content[0]?.text).toContain("Only next tool");
+		expect(nextResult.content[0]?.text).toContain("Current step lock: T1-S1");
 		const resumed = await execute(resume, {}, ctx);
 		expect(resumed.content[0]?.text).toContain("pi-tasks resume");
 		expect(resumed.content[0]?.text).toContain("Current step: T1-S1");
@@ -199,8 +203,12 @@ describe("registered task tools", () => {
 			ctx,
 		);
 		expect(rejected.isError).toBe(true);
-		expect(rejected.content[0]?.text).toContain("Recovery guidance");
+		expect(rejected.content[0]?.text).toContain("retry_with");
 		expect(rejected.content[0]?.text).toContain("pi-tasks resume");
+		expect(rejected.details).toMatchObject({
+			rejected: true,
+			do_not_retry_same_call: true,
+		});
 		const firstEvidence = await execute(
 			evidence,
 			{

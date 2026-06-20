@@ -274,6 +274,7 @@ Rules:
 - Structured `plan_steps` should provide expected output, linked criteria, evidence requirement, and allowed actions.
 - During new task creation, agents should omit `plan_steps.criterionIds` unless generated criterion IDs are already known. Omitted criterion IDs link the step to all task criteria after IDs such as `T1-AC1` are generated.
 - Structured `plan_steps` should also include a granularity check. A step is executable only when it is `atomic`.
+- Atomic steps must not bundle obvious sequential work. The quality gate rejects compound wording such as `and`, `then`, `also`, `並且`, `然後`, `接著`, `以及`, or `同時` in atomic step text, expected output, or allowed actions.
 - The first step is active when the task is activated.
 - Agents must complete or skip the current open step before advancing.
 - Non-atomic steps must be recursively decomposed with `task_decompose` before they can be marked `done`.
@@ -281,6 +282,7 @@ Rules:
 - Skipping a step requires a reason or note.
 - Decomposition replaces a parent step with ordered child steps such as `T1-S1.1` and preserves parent traceability through `parentStepId`.
 - Step evidence should be linked with `task_evidence.step_ids`; criterion-only evidence is auto-linked to a step only when exactly one step matches the criterion.
+- Step evidence is locked to the current open step. Attaching evidence to another step requires an explicit override reason.
 - Plan quality gate rejects steps with vague wording, weak expected output, broad allowed actions, missing criterion links, or non-evidence-gated atomic work.
 
 ### 5.8 Task
@@ -442,7 +444,27 @@ Behavior:
 - if activating, deactivates previous active task by moving it to `pending` unless explicit parallel support exists,
 - returns task summary and next action.
 
-### 8.2 `task_focus`
+### 8.2 `task_next`
+
+Purpose:
+
+Return the single recommended next tool call for weak or small-context models.
+
+Parameters:
+
+None.
+
+Behavior:
+
+- no mutation,
+- returns execution mode: `planning`, `decomposing`, `executing`, `verifying`, `blocked`, or `completing`,
+- returns the only recommended next tool,
+- returns current-step lock when a step is open,
+- returns blocked tools that should not be called now,
+- returns minimum params for the recommended tool,
+- should be called after rejection, compaction, branch navigation, or uncertainty.
+
+### 8.3 `task_focus`
 
 Purpose:
 
@@ -459,7 +481,7 @@ Behavior:
 - returns the granularity status and next allowed action when the current step still needs breakdown,
 - should be called before implementation, verification, or step completion work.
 
-### 8.3 `task_resume`
+### 8.4 `task_resume`
 
 Purpose:
 
@@ -472,10 +494,10 @@ None.
 Behavior:
 
 - no mutation,
-- returns active task, current step, decomposition lineage, expected output, step evidence, criteria links, allowed actions, verification gaps, blockers, warnings, recent decisions, and resume instruction,
+- returns active task, execution mode, recommended tool, blocked tools, minimum params, current step, decomposition lineage, expected output, step evidence, criteria links, allowed actions, verification gaps, blockers, warnings, recent decisions, and resume instruction,
 - should be called immediately after compaction, reload, fork, or uncertain continuation.
 
-### 8.4 `task_checkpoint`
+### 8.5 `task_checkpoint`
 
 Purpose:
 
@@ -491,7 +513,7 @@ Behavior:
 - does not count as verification evidence,
 - is intended before long pauses, risky context transitions, or manual handoff.
 
-### 8.5 `task_granularity_check`
+### 8.6 `task_granularity_check`
 
 Purpose:
 
@@ -508,7 +530,7 @@ Behavior:
 - returns the step atomicity booleans and rationale,
 - tells the agent to call `task_decompose` when the step is not atomic.
 
-### 8.6 `task_decompose`
+### 8.7 `task_decompose`
 
 Purpose:
 
@@ -530,7 +552,7 @@ Behavior:
 - replaces the parent step with ordered child steps such as `T1-S1.1`,
 - keeps the first child in the parent's current status so focus can continue.
 
-### 8.7 `task_list`
+### 8.8 `task_list`
 
 Purpose:
 
@@ -551,7 +573,7 @@ Behavior:
 - includes blockers and verification gaps in compact form,
 - expands step, blocker, decision, criterion, and evidence details only when `include_evidence` is explicitly requested.
 
-### 8.7.1 Token-Efficient Output Contract
+### 8.8.1 Token-Efficient Output Contract
 
 Durable state and model-visible output have different budgets:
 
@@ -562,7 +584,7 @@ Durable state and model-visible output have different budgets:
 - Detailed renderers truncate long task text, evidence summaries, and references.
 - Long command logs and transcripts should be stored as evidence artifact references, not pasted into tool result text.
 
-### 8.8 `task_update`
+### 8.9 `task_update`
 
 Purpose:
 
@@ -597,7 +619,7 @@ Behavior:
 - appends event,
 - updates widget/status.
 
-### 8.9 `task_evidence`
+### 8.10 `task_evidence`
 
 Purpose:
 
@@ -614,16 +636,19 @@ Parameters:
 - `criterion_ids`
 - `step_ids`
 - `quality`
+- `override_reason`
 
 Behavior:
 
 - appends evidence,
 - links evidence to explicit step IDs when provided,
 - rejects low-quality evidence that lacks traceability, reproducibility, required artifact references, or observed output for test/command/dogfood evidence,
+- rejects oversized evidence summaries, references, artifact refs, command strings, source strings, and observed output,
+- rejects evidence linked to a non-current step unless `override_reason` is supplied,
 - marks referenced criteria satisfied only when `passed: true`,
 - never marks task done by itself.
 
-### 8.10 `task_decision`
+### 8.11 `task_decision`
 
 Purpose:
 
@@ -643,7 +668,7 @@ Behavior:
 - appends decision,
 - visible in task details.
 
-### 8.11 `task_complete`
+### 8.12 `task_complete`
 
 Purpose:
 
@@ -920,6 +945,10 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
 - structured step contracts with expected output, criterion links, evidence requirement, and allowed actions,
 - plan quality and evidence quality gates for weak-model resistance,
+- `task_next` one-step weak-model guidance,
+- structured rejection recovery details with retry tool and minimum params,
+- stricter atomic step scoring for compound wording,
+- current-step evidence locking and evidence text budgets,
 - recursive decomposition gate with `task_granularity_check` and `task_decompose`,
 - `task_focus` current-step guidance before action,
 - `task_resume`, `task_checkpoint`, and snapshot resume fields for compaction-safe continuation,

@@ -174,6 +174,10 @@ export interface TaskResumeContext {
 	title?: string;
 	status?: TaskStatus;
 	progress?: number;
+	mode?: TaskExecutionMode;
+	recommendedTool?: string;
+	blockedTools?: string[];
+	minimumParams?: Record<string, unknown>;
 	currentStepId?: string;
 	currentStepText?: string;
 	currentStepLineage: TaskResumeStep[];
@@ -189,6 +193,14 @@ export interface TaskResumeContext {
 	warnings: string[];
 	resumeInstruction: string;
 }
+
+export type TaskExecutionMode =
+	| "planning"
+	| "decomposing"
+	| "executing"
+	| "verifying"
+	| "blocked"
+	| "completing";
 
 export interface TaskState {
 	tasks: Record<string, Task>;
@@ -254,6 +266,7 @@ export interface TaskEvidenceAddedEvent extends TaskEventBase {
 	};
 	criterionIds?: string[];
 	stepIds?: string[];
+	overrideReason?: string;
 }
 
 export interface TaskDecisionRecordedEvent extends TaskEventBase {

@@ -44,6 +44,10 @@ Environment:
 - Token output session ID: `token-output-smoke-1`
 - Installed token output session directory: `/private/tmp/pi-tasks-token-release-check/sessions`
 - Installed token output session ID: `token-installed-smoke-1`
+- Weak-model hardening session directory: `/private/tmp/pi-tasks-weakmodel-hardening/sessions`
+- Weak-model hardening session ID: `weakmodel-hardening-1`
+- Installed weak-model hardening session directory: `/private/tmp/pi-tasks-weakmodel-release-check/sessions`
+- Installed weak-model hardening session ID: `weakmodel-installed-hardening-1`
 
 ## Passed Scenarios
 
@@ -99,6 +103,11 @@ Environment:
 - Confirmed token-efficient tool output returns compact `task_resume` guidance rather than full evidence dumps.
 - Confirmed `/tasks` defaults to compact one-line task summary and `/tasks detail` explicitly expands step and criterion details.
 - Confirmed installed 0.1.2 tarball runtime preserves compact `task_list` output through `./node_modules/pi-tasks/dist/index.js`.
+- Confirmed `task_next` returns one-step weak-model guidance with only next tool, current-step lock, blocked tools, and minimum params.
+- Confirmed compound atomic step wording is rejected by the plan quality gate.
+- Confirmed future-step evidence is rejected unless current-step lock is overridden with an explicit reason.
+- Confirmed oversized evidence summary is rejected and long output is directed to artifact references.
+- Confirmed installed 0.1.2 tarball runtime exposes `task_next` and structured recovery for compound atomic rejection.
 
 ## Commands
 
@@ -400,6 +409,49 @@ gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-token-releas
 
 Observed result: installed runtime created `T1: Installed Token Smoke`; `task_list` without `include_evidence` returned compact single-line summary without evidence details.
 
+Weak-model hardening dogfood:
+
+```sh
+rm -rf /private/tmp/pi-tasks-weakmodel-hardening
+mkdir -p /private/tmp/pi-tasks-weakmodel-hardening/sessions
+gtimeout 180s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-hardening/sessions \
+  pi --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_next,task_plan,task_evidence,task_list \
+  --session-id weakmodel-hardening-1 \
+  --name weakmodel-hardening-1 \
+  -p "Weak-model hardening dogfood. First call task_next with no active task. Then call task_plan once with a deliberately invalid atomic step text 'Run tests and update docs' so compound wording is rejected. Then create a valid task named Weak Model Hardening with one acceptance criterion and two atomic plan steps; omit criterionIds manually; each step must have one action, one output, one verification method, allowedActions [\"task_evidence\"], and no compound wording. Then call task_evidence once targeting future step T1-S2 while current step is T1-S1 so current-step lock rejects it. Then call task_evidence once with a summary longer than 501 characters so evidence budget rejects it. Finally call task_next and task_list without include_evidence, and report exact rejections plus the only next tool."
+```
+
+Observed result:
+
+- compound atomic rejection: `Plan step 1 failed quality gate: step text uses vague or broad wording; step text appears to contain multiple actions`
+- future-step evidence rejection: `Evidence step_ids must target current step T1-S1; overrideReason is required for T1-S2`
+- oversized evidence rejection: `Evidence summary exceeds 500 characters; put long output in artifactRefs`
+- final `task_next`: only next tool `task_evidence`, current step lock `T1-S1`, minimum params include `task_id`, `step_ids`, `criterion_ids`, and `references`
+- compact `task_list`: `T1 [active] 1% criteria:0/1 - Weak Model Hardening`
+
+Installed 0.1.2 weak-model hardening smoke:
+
+```sh
+rm -rf /private/tmp/pi-tasks-weakmodel-release-check
+mkdir -p /private/tmp/pi-tasks-weakmodel-release-check/tarball /private/tmp/pi-tasks-weakmodel-release-check/consumer /private/tmp/pi-tasks-weakmodel-release-check/sessions
+npm pack --pack-destination /private/tmp/pi-tasks-weakmodel-release-check/tarball
+cd /private/tmp/pi-tasks-weakmodel-release-check/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-weakmodel-release-check/tarball/pi-tasks-0.1.2.tgz
+node -e "import('pi-tasks')"
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-release-check/sessions \
+  pi --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_next,task_plan \
+  --session-id weakmodel-installed-hardening-1 \
+  --name weakmodel-installed-hardening-1 \
+  -p "Installed weak-model smoke. Call task_next with no active task. Then call task_plan with one deliberately invalid atomic step text 'Run tests and update docs' and report whether compound wording is rejected with structured recovery."
+```
+
+Observed result: installed runtime exposed `task_next`; compound atomic step was rejected; structured recovery included `retry_with: task_plan`, `do_not_retry_same_call: true`, a reason, and resume guidance.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -418,6 +470,8 @@ Also passed on 2026-06-19:
 - installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 - 0.1.2 clean tarball install plus `node -e "import('pi-tasks')"`
 - 0.1.2 installed-package token-output Pi smoke through `./node_modules/pi-tasks/dist/index.js`
+- weak-model hardening Pi dogfood for `task_next`, compound plan rejection, current-step evidence lock, and evidence budget rejection
+- 0.1.2 installed-package weak-model smoke for `task_next` and structured recovery
 
 ## Remaining Runtime Coverage
 

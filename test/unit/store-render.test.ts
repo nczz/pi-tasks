@@ -5,6 +5,7 @@ import {
 	formatStatusText,
 	formatTaskFocus,
 	formatTaskList,
+	formatTaskNext,
 	formatTaskResume,
 	formatWidgetLines,
 } from "../../src/render.ts";
@@ -240,7 +241,7 @@ describe("store replay and render helpers", () => {
 	});
 
 	it("bounds long evidence detail output", () => {
-		const longText = "x".repeat(500);
+		const longText = "x".repeat(260);
 		const state = replayBranchEntries([
 			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
 			{
@@ -289,6 +290,16 @@ describe("store replay and render helpers", () => {
 		expect(output).toContain("Granularity: atomic");
 		expect(output).toContain("Expected output");
 		expect(output).toContain("Evidence: none (required)");
+	});
+
+	it("formats one-step next guidance for weak models", () => {
+		const state = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
+		]).state;
+		const output = formatTaskNext(state);
+		expect(output).toContain("Only next tool: task_evidence");
+		expect(output).toContain("Current step lock: T1-S1");
+		expect(output).toContain("Do not call: task_update done, task_complete");
 	});
 
 	it("replays a compaction snapshot with resume fields for a decomposed step", () => {
