@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2] - Unreleased
+
+### Changed
+- Added a token-efficient output contract: mutation tools now return compact `task_resume` guidance instead of full task/evidence dumps.
+- Tool `details` now carry compact resume context instead of full task state for normal tool responses.
+- `/tasks` now defaults to compact task summaries; `/tasks detail` explicitly requests full task details.
+- Detailed task/evidence rendering now truncates long text and references to keep debug output bounded.
+
+### Added
+- Unit coverage for compact `/tasks`, explicit detail mode, compact tool `details`, and bounded evidence rendering.
+
 ## [0.1.1] - 2026-06-19
 
 Initial public release candidate.

@@ -15,6 +15,8 @@ const STATUS_ORDER: TaskStatus[] = [
 	"done",
 	"cancelled",
 ];
+const DETAIL_TEXT_MAX = 220;
+const DETAIL_REF_MAX = 120;
 
 export function truncateText(text: string, maxWidth: number): string {
 	if (maxWidth <= 0) return "";
@@ -92,15 +94,15 @@ export function formatTaskList(
 		if (!options.includeEvidence) return [summary];
 		const blockerLines = task.blockers.map(
 			(blocker) =>
-				`  - blocker ${blocker.id} [${blocker.resolvedAt ? "resolved" : blocker.blockedBy}] ${blocker.reason}; unblock: ${blocker.neededToUnblock}`,
+				`  - blocker ${blocker.id} [${blocker.resolvedAt ? "resolved" : blocker.blockedBy}] ${compactDetail(blocker.reason)}; unblock: ${compactDetail(blocker.neededToUnblock)}`,
 		);
 		const planSteps = (task.planSteps ?? []).map(
 			(step) =>
-				`  - ${step.id} step [${step.status}/${step.decompositionStatus}] ${step.text}; output: ${step.expectedOutput}${step.parentStepId ? `; parent:${step.parentStepId}` : ""}; atomic:${step.granularityCheck.isAtomic}; planQuality:${step.planQuality.score}${step.planQuality.issues.length ? ` (${step.planQuality.issues.join("; ")})` : ""}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
+				`  - ${step.id} step [${step.status}/${step.decompositionStatus}] ${compactDetail(step.text)}; output: ${compactDetail(step.expectedOutput)}${step.parentStepId ? `; parent:${step.parentStepId}` : ""}; atomic:${step.granularityCheck.isAtomic}; planQuality:${step.planQuality.score}${step.planQuality.issues.length ? ` (${compactDetail(step.planQuality.issues.join("; "))})` : ""}${step.evidenceRequired ? "; evidence required" : ""}${step.criterionIds.length ? `; criteria:${step.criterionIds.join(",")}` : ""}${step.evidenceIds.length ? `; evidence:${step.evidenceIds.join(",")}` : ""}`,
 		);
 		const decisions = task.decisions.map(
 			(decision) =>
-				`  - ${decision.id} decision [${decision.decidedBy}] ${decision.question}: ${decision.decision}${decision.rationale ? `; rationale: ${decision.rationale}` : ""}`,
+				`  - ${decision.id} decision [${decision.decidedBy}] ${compactDetail(decision.question)}: ${compactDetail(decision.decision)}${decision.rationale ? `; rationale: ${compactDetail(decision.rationale)}` : ""}`,
 		);
 		return [
 			summary,
@@ -110,11 +112,11 @@ export function formatTaskList(
 			...planSteps,
 			...task.acceptanceCriteria.map(
 				(criterion) =>
-					`  - ${criterion.id} [${criterion.status}] ${criterion.text}${criterion.evidenceIds.length ? ` evidence:${criterion.evidenceIds.join(",")}` : ""}`,
+					`  - ${criterion.id} [${criterion.status}] ${compactDetail(criterion.text)}${criterion.evidenceIds.length ? ` evidence:${criterion.evidenceIds.join(",")}` : ""}`,
 			),
 			...task.evidence.map(
 				(item) =>
-					`  - ${item.id} evidence ${item.level} ${item.passed}: ${item.summary}; source:${item.quality.source}; reproducible:${item.quality.reproducible}${item.references.length ? ` (${item.references.join(", ")})` : ""}`,
+					`  - ${item.id} evidence ${item.level} ${item.passed}: ${compactDetail(item.summary)}; source:${compactRef(item.quality.source)}; reproducible:${item.quality.reproducible}${item.references.length ? ` (${item.references.map(compactRef).join(", ")})` : ""}`,
 			),
 		];
 	});
@@ -125,6 +127,14 @@ export function formatTaskList(
 	return [...lines, ...warnings].join("\n");
 }
 
+function compactDetail(text: string): string {
+	return truncateText(text.replace(/\s+/g, " ").trim(), DETAIL_TEXT_MAX);
+}
+
+function compactRef(text: string): string {
+	return truncateText(text.replace(/\s+/g, " ").trim(), DETAIL_REF_MAX);
+}
+
 export function formatTaskFocus(state: TaskState): string {
 	const task = state.activeTaskId ? state.tasks[state.activeTaskId] : undefined;
 	if (!task) return "No active pi-tasks task. Create one with task_plan.";
@@ -132,20 +142,24 @@ export function formatTaskFocus(state: TaskState): string {
 		(item) => item.status !== "done" && item.status !== "skipped",
 	);
 	const lines = [
-		`Active task: ${task.id} ${task.title}`,
+		`Active task: ${task.id} ${compactDetail(task.title)}`,
 		`Status: ${task.status} ${task.progress}%`,
 	];
 	if (!step) {
 		lines.push("Current step: none open");
 	} else {
-		lines.push(`Current step: ${step.id} [${step.status}] ${step.text}`);
-		lines.push(`Granularity: ${step.decompositionStatus}`);
-		lines.push(`Atomicity reason: ${step.granularityCheck.reason}`);
 		lines.push(
-			`Plan quality: ${step.planQuality.score}${step.planQuality.issues.length ? ` (${step.planQuality.issues.join("; ")})` : ""}`,
+			`Current step: ${step.id} [${step.status}] ${compactDetail(step.text)}`,
+		);
+		lines.push(`Granularity: ${step.decompositionStatus}`);
+		lines.push(
+			`Atomicity reason: ${compactDetail(step.granularityCheck.reason)}`,
+		);
+		lines.push(
+			`Plan quality: ${step.planQuality.score}${step.planQuality.issues.length ? ` (${compactDetail(step.planQuality.issues.join("; "))})` : ""}`,
 		);
 		if (step.parentStepId) lines.push(`Parent step: ${step.parentStepId}`);
-		lines.push(`Expected output: ${step.expectedOutput}`);
+		lines.push(`Expected output: ${compactDetail(step.expectedOutput)}`);
 		lines.push(
 			`Evidence: ${step.evidenceIds.length ? step.evidenceIds.join(",") : "none"}${step.evidenceRequired ? " (required)" : ""}`,
 		);
@@ -153,7 +167,9 @@ export function formatTaskFocus(state: TaskState): string {
 			lines.push(`Linked criteria: ${step.criterionIds.join(",")}`);
 		}
 		if (step.allowedActions.length > 0) {
-			lines.push(`Allowed actions: ${step.allowedActions.join(", ")}`);
+			lines.push(
+				`Allowed actions: ${step.allowedActions.map(compactRef).join(", ")}`,
+			);
 		}
 		if (step.decompositionStatus !== "atomic") {
 			lines.push(`Next allowed action: task_decompose ${step.id}`);
@@ -163,7 +179,9 @@ export function formatTaskFocus(state: TaskState): string {
 	if (gaps.length > 0) lines.push(`Gaps: ${gaps.join("; ")}`);
 	if (task.warnings.length > 0) {
 		lines.push("Warnings:");
-		lines.push(...task.warnings.map((warning) => `- ${warning}`));
+		lines.push(
+			...task.warnings.map((warning) => `- ${compactDetail(warning)}`),
+		);
 	}
 	return lines.join("\n");
 }
@@ -189,12 +207,12 @@ export function buildTaskResume(state: TaskState): TaskResumeContext {
 	const gaps = getVerificationGaps(task);
 	const blockers = task.blockers
 		.filter((blocker) => !blocker.resolvedAt)
-		.map((blocker) => `${blocker.id}: ${blocker.reason}`);
+		.map((blocker) => `${blocker.id}: ${compactDetail(blocker.reason)}`);
 	const decisions = task.decisions
 		.slice(-3)
 		.map(
 			(decision) =>
-				`${decision.id}: ${decision.question} -> ${decision.decision}`,
+				`${decision.id}: ${compactDetail(decision.question)} -> ${compactDetail(decision.decision)}`,
 		);
 	const nextAllowedActions = step
 		? getNextAllowedActions(step, blockers.length > 0)
@@ -202,19 +220,19 @@ export function buildTaskResume(state: TaskState): TaskResumeContext {
 	return {
 		...(state.activeTaskId ? { activeTaskId: state.activeTaskId } : {}),
 		taskId: task.id,
-		title: task.title,
+		title: compactDetail(task.title),
 		status: task.status,
 		progress: task.progress,
 		...(step
 			? {
 					currentStepId: step.id,
-					currentStepText: step.text,
+					currentStepText: compactDetail(step.text),
 					currentStepLineage: getStepLineage(task, step),
-					expectedOutput: step.expectedOutput,
+					expectedOutput: compactDetail(step.expectedOutput),
 					evidenceRequired: step.evidenceRequired,
 					evidenceIds: [...step.evidenceIds],
 					criterionIds: [...step.criterionIds],
-					allowedActions: [...step.allowedActions],
+					allowedActions: step.allowedActions.map(compactRef),
 				}
 			: {
 					currentStepLineage: [],
@@ -226,7 +244,7 @@ export function buildTaskResume(state: TaskState): TaskResumeContext {
 		verificationGaps: gaps,
 		blockers,
 		decisions,
-		warnings: [...state.warnings, ...task.warnings],
+		warnings: [...state.warnings, ...task.warnings].map(compactDetail),
 		resumeInstruction: buildResumeInstruction(
 			task,
 			step,
@@ -352,7 +370,7 @@ function getStepLineage(task: Task, step: TaskStep): TaskResumeStep[] {
 	while (current) {
 		lineage.unshift({
 			id: current.id,
-			text: current.text,
+			text: compactDetail(current.text),
 			status: current.status,
 			decompositionStatus: current.decompositionStatus,
 		});

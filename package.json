@@ -1,6 +1,6 @@
 {
 	"name": "pi-tasks",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Pi-native task and progress contracts for agents and users",
 	"type": "module",
 	"main": "dist/index.js",

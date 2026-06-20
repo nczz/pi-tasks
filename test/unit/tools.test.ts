@@ -149,7 +149,7 @@ describe("registered task tools", () => {
 		const focus = requireTool(tools, "task_focus");
 		const resume = requireTool(tools, "task_resume");
 
-		await execute(
+		const created = await execute(
 			plan,
 			{
 				title: "Tool MVP",
@@ -177,6 +177,9 @@ describe("registered task tools", () => {
 			},
 			ctx,
 		);
+		expect(created.content[0]?.text).toContain("pi-tasks resume");
+		expect(created.details).toMatchObject({ taskId: "T1" });
+		expect((created.details as { tasks?: unknown }).tasks).toBeUndefined();
 		expect(ui.status).toContain("Task T1 active");
 		expect(ui.widget?.join("\n")).toContain("Active task: T1");
 		const focused = await execute(focus, {}, ctx);
@@ -220,6 +223,9 @@ describe("registered task tools", () => {
 			ctx,
 		);
 		expect(firstEvidence.content[0]?.text).toContain("Recorded evidence");
+		expect(
+			(firstEvidence.details as { tasks?: unknown }).tasks,
+		).toBeUndefined();
 		const duplicateEvidence = await execute(
 			evidence,
 			{

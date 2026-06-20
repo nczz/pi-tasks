@@ -40,7 +40,7 @@ const createEvent: TaskEvent = {
 };
 
 describe("/tasks command", () => {
-	it("registers and notifies the current branch task summary", async () => {
+	it("registers and notifies a compact current branch task summary by default", async () => {
 		const commands = new Map<string, RegisteredCommand>();
 		const pi: ExtensionAPI = {
 			on: () => {},
@@ -71,6 +71,42 @@ describe("/tasks command", () => {
 
 		registerTaskCommands(pi, store);
 		await commands.get("tasks")?.handler("", ctx);
+
+		expect(notification).toContain("T1 [active]");
+		expect(notification).not.toContain("T1-AC1");
+	});
+
+	it("shows full task details only when explicitly requested", async () => {
+		const commands = new Map<string, RegisteredCommand>();
+		const pi: ExtensionAPI = {
+			on: () => {},
+			registerTool: () => {},
+			registerCommand: (name, command) => commands.set(name, command),
+			appendEntry: () => {},
+		};
+		const store = createTaskRuntimeStore();
+		store.replay([
+			{
+				type: "custom",
+				customType: TASK_EVENT_CUSTOM_TYPE,
+				data: createEvent,
+			},
+		]);
+		let notification = "";
+		const ctx: ExtensionContext = {
+			mode: "tui",
+			sessionManager: { getBranch: () => [] },
+			ui: {
+				notify: (message) => {
+					notification = message;
+				},
+				setStatus: () => {},
+				setWidget: () => {},
+			},
+		};
+
+		registerTaskCommands(pi, store);
+		await commands.get("tasks")?.handler("detail", ctx);
 
 		expect(notification).toContain("T1 [active]");
 		expect(notification).toContain("T1-AC1");

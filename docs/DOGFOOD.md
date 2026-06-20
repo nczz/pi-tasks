@@ -40,6 +40,10 @@ Environment:
 - Installed ID regression session ID: `installed-id-regression-1`
 - Final release session directory: `/private/tmp/pi-tasks-final-release/sessions`
 - Final installed package smoke session ID: `final-installed-smoke-1`
+- Token output session directory: `/private/tmp/pi-tasks-token-smoke/sessions`
+- Token output session ID: `token-output-smoke-1`
+- Installed token output session directory: `/private/tmp/pi-tasks-token-release-check/sessions`
+- Installed token output session ID: `token-installed-smoke-1`
 
 ## Passed Scenarios
 
@@ -92,6 +96,9 @@ Environment:
 - Confirmed post-compaction replay with `task_resume` restores active task `T1`, current step `T1-S1`, allowed action `task_evidence`, and completion gaps.
 - Confirmed interactive `/tree` navigation in a forked live PTY can move to the branch point before valid task creation, where `/tasks` correctly reports `No tasks on this branch.`
 - Confirmed 50-column live Pi TUI rendering keeps status/widget lines readable with truncation and does not cover the input line.
+- Confirmed token-efficient tool output returns compact `task_resume` guidance rather than full evidence dumps.
+- Confirmed `/tasks` defaults to compact one-line task summary and `/tasks detail` explicitly expands step and criterion details.
+- Confirmed installed 0.1.2 tarball runtime preserves compact `task_list` output through `./node_modules/pi-tasks/dist/index.js`.
 
 ## Commands
 
@@ -343,6 +350,56 @@ gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-final-releas
 
 Observed result: invalid `task_plan` rejected with `expected output is too short; step text uses vague or broad wording; allowedActions are required`; valid installed-package task created as `T1: Final Installed Smoke`; `task_list` confirmed `T1` active.
 
+Token-efficient output smoke:
+
+```sh
+rm -rf /private/tmp/pi-tasks-token-smoke
+mkdir -p /private/tmp/pi-tasks-token-smoke/sessions
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-token-smoke/sessions \
+  pi --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_plan,task_list,task_resume \
+  --session-id token-output-smoke-1 \
+  --name token-output-smoke-1 \
+  -p "Token output smoke. Create a valid task named Token Output Smoke with one acceptance criterion and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. After task_plan, call task_list without include_evidence and task_resume. Report whether the task_plan result was compact resume guidance rather than a full evidence dump."
+```
+
+Observed result: created `T1: Token Output Smoke`; `task_plan` returned compact `pi-tasks resume` guidance; `task_list` without `include_evidence` returned only `T1 [active] 1% criteria:0/1 - Token Output Smoke`.
+
+Then open the same session in a PTY:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-token-smoke/sessions \
+  pi --no-extensions --extension ./index.ts --session-id token-output-smoke-1
+```
+
+Observed result:
+
+- `/tasks` returned compact summary only: `T1 [active] 1% criteria:0/1 - Token Output Smoke`.
+- `/tasks detail` expanded step and criterion details, including `criteria:T1-AC1`.
+- `/quit` exited cleanly.
+
+Installed 0.1.2 token output smoke:
+
+```sh
+rm -rf /private/tmp/pi-tasks-token-release-check
+mkdir -p /private/tmp/pi-tasks-token-release-check/tarball /private/tmp/pi-tasks-token-release-check/consumer /private/tmp/pi-tasks-token-release-check/sessions
+npm pack --pack-destination /private/tmp/pi-tasks-token-release-check/tarball
+cd /private/tmp/pi-tasks-token-release-check/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-token-release-check/tarball/pi-tasks-0.1.2.tgz
+node -e "import('pi-tasks')"
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-token-release-check/sessions \
+  pi --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_plan,task_list \
+  --session-id token-installed-smoke-1 \
+  --name token-installed-smoke-1 \
+  -p "Installed token output smoke. Create a valid task named Installed Token Smoke with one acceptance criterion and one atomic plan step with allowedActions [\"task_evidence\"]. Do not set criterionIds manually. Then call task_list without include_evidence and report whether the result is compact."
+```
+
+Observed result: installed runtime created `T1: Installed Token Smoke`; `task_list` without `include_evidence` returned compact single-line summary without evidence details.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -359,6 +416,8 @@ Also passed on 2026-06-19:
 - clean consumer `node -e "import('pi-tasks')"`
 - `npm audit --audit-level=low` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
 - installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
+- 0.1.2 clean tarball install plus `node -e "import('pi-tasks')"`
+- 0.1.2 installed-package token-output Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 

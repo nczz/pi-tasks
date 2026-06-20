@@ -547,7 +547,20 @@ Behavior:
 
 - no mutation,
 - returns active task first,
-- includes blockers and verification gaps.
+- compact by default,
+- includes blockers and verification gaps in compact form,
+- expands step, blocker, decision, criterion, and evidence details only when `include_evidence` is explicitly requested.
+
+### 8.7.1 Token-Efficient Output Contract
+
+Durable state and model-visible output have different budgets:
+
+- Pi custom entries and snapshots retain full replay state for resume, fork, and compaction resilience.
+- Normal tool results return compact resume context, not full task state.
+- Mutation tools return success plus `task_resume` guidance instead of full task/evidence dumps.
+- Tool `details` use compact resume context by default.
+- Detailed renderers truncate long task text, evidence summaries, and references.
+- Long command logs and transcripts should be stored as evidence artifact references, not pasted into tool result text.
 
 ### 8.8 `task_update`
 
@@ -914,7 +927,8 @@ As of 2026-06-18, the repo contains an MVP implementation for:
 - duplicate evidence deduplication in tool execution and replay,
 - branch custom-entry replay in `src/store.ts`,
 - tool registration in `src/tools.ts`,
-- `/tasks` command registration in `src/commands.ts`, including detailed step, blocker, decision, criterion, and evidence output,
+- token-efficient tool result rendering that returns compact resume guidance by default,
+- `/tasks` command registration in `src/commands.ts`, with compact default output and explicit `/tasks detail` expansion,
 - compact status/widget formatting in `src/render.ts` and `src/widget.ts`,
 - startup-light extension registration in `index.ts`,
 - compiled npm runtime in `dist/`,
@@ -948,11 +962,11 @@ Verified with real Pi dogfood:
 
 Remaining runtime coverage:
 
-- none known for the 0.1.0 release scope.
+- none known for the 0.1.1 release scope.
 
 ## 21. Documentation Completeness Assessment
 
-After the MVP implementation and dogfood pass, documentation completeness is 100/100 for the 0.1.0 release scope.
+After the MVP implementation and dogfood pass, documentation completeness is 100/100 for the 0.1.1 release scope.
 
 The final runtime checks verified:
 

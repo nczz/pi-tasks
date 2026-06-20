@@ -246,7 +246,10 @@ export function registerTaskTools(
 		],
 		parameters: Type.Object({}),
 		execute: async () =>
-			textResult(formatTaskFocus(store.getState()), store.getState()),
+			textResult(
+				formatTaskFocus(store.getState()),
+				buildTaskResume(store.getState()),
+			),
 	});
 
 	pi.registerTool<Record<string, never>>({
@@ -286,7 +289,10 @@ export function registerTaskTools(
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 			const state = store.getState();
 			if (Object.keys(state.tasks).length === 0) {
-				return textResult("No pi-tasks state to checkpoint.", state);
+				return textResult(
+					"No pi-tasks state to checkpoint.",
+					buildTaskResume(state),
+				);
 			}
 			const event = baseEvent(
 				"task.snapshot",
@@ -328,12 +334,15 @@ export function registerTaskTools(
 			const state = store.getState();
 			const task = selectTask(state, params.task_id);
 			if (!task) {
-				return { ...textResult("Error: no active task", state), isError: true };
+				return {
+					...textResult("Error: no active task", buildTaskResume(state)),
+					isError: true,
+				};
 			}
 			const step = selectStep(task, params.step_id);
 			if (!step) {
 				return {
-					...textResult("Error: no matching open step", state),
+					...textResult("Error: no matching open step", buildTaskResume(state)),
 					isError: true,
 				};
 			}
@@ -352,7 +361,7 @@ export function registerTaskTools(
 						? "Next allowed action: task_focus or execution work"
 						: `Next allowed action: task_decompose ${step.id}`,
 				].join("\n"),
-				state,
+				buildTaskResume(state),
 			);
 		},
 	});
@@ -433,7 +442,7 @@ export function registerTaskTools(
 				: rawState;
 			return textResult(
 				formatTaskList(filtered, formatListOptions(params)),
-				filtered,
+				buildTaskResume(filtered),
 			);
 		},
 	});
@@ -561,8 +570,8 @@ export function registerTaskTools(
 				criteriaAlreadyLinked(store.getState(), params, duplicate)
 			) {
 				return textResult(
-					`Evidence already recorded as ${duplicate.id} for task ${params.task_id}\n\n${formatTaskList(store.getState(), { includeDone: true, includeEvidence: true })}`,
-					store.getState(),
+					`Evidence already recorded as ${duplicate.id} for task ${params.task_id}\n\n${formatTaskResume(store.getState())}`,
+					buildTaskResume(store.getState()),
 				);
 			}
 			const evidenceId = idGenerator.next("E");
@@ -715,15 +724,15 @@ function appendAndReport(
 				? `\nWarning: forced completion: ${event.forceWithReason}`
 				: "";
 		return textResult(
-			`${success}${warning}\n\n${formatTaskList(state, { includeDone: true, includeEvidence: true })}`,
-			state,
+			`${success}${warning}\n\n${formatTaskResume(state)}`,
+			buildTaskResume(state),
 		);
 	} catch (error) {
 		const resume = formatTaskResume(store.getState());
 		return {
 			...textResult(
 				`Error: ${errorText(error)}\n\nRecovery guidance:\n${resume}`,
-				store.getState(),
+				buildTaskResume(store.getState()),
 			),
 			isError: true,
 		};

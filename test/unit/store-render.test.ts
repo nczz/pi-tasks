@@ -239,6 +239,47 @@ describe("store replay and render helpers", () => {
 		);
 	});
 
+	it("bounds long evidence detail output", () => {
+		const longText = "x".repeat(500);
+		const state = replayBranchEntries([
+			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },
+			{
+				type: "custom",
+				customType: TASK_EVENT_CUSTOM_TYPE,
+				data: {
+					version: 1,
+					id: "T1-evidence",
+					type: "task.evidence_added",
+					taskId: "T1",
+					createdAt: "2026-06-18T00:02:00.000Z",
+					source: "tool",
+					evidence: {
+						id: "E1",
+						type: "command",
+						level: "unit_test",
+						summary: longText,
+						passed: true,
+						references: [longText],
+						quality: {
+							source: longText,
+							reproducible: true,
+							verifier: "tool",
+							command: "npm test",
+							artifactRefs: [longText],
+							observedOutput: longText,
+						},
+					},
+					criterionIds: ["T1-AC1"],
+					stepIds: ["T1-S1"],
+				},
+			},
+		]).state;
+		const output = formatTaskList(state, { includeEvidence: true });
+		expect(output).toContain("E1 evidence");
+		expect(output).toContain("…");
+		expect(output).not.toContain(longText);
+	});
+
 	it("formats the active focus with step contract details", () => {
 		const state = replayBranchEntries([
 			{ type: "custom", customType: TASK_EVENT_CUSTOM_TYPE, data: createEvent },

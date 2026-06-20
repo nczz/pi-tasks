@@ -26,6 +26,7 @@ Pi-native task and progress contract for agents and users.
 - User command: `/tasks`.
 - Compact status and above-editor widget through `ctx.ui.setStatus` and `ctx.ui.setWidget`.
 - Compaction snapshot hook via `session_before_compact`.
+- Token-efficient output contract: mutation tools return compact resume guidance by default, tool `details` avoid full task state, `/tasks` defaults to compact summary, and `/tasks detail` is the explicit detailed view.
 - npm package runtime is built to `dist/`; source `index.ts` remains usable for local extension development.
 
 ## Install
@@ -41,6 +42,26 @@ For local development from this checkout:
 ```sh
 pi install ./
 ```
+
+## Token Usage
+
+`pi-tasks` stores durable task state in Pi custom entries for replay, fork, and compaction resilience. To avoid unnecessary context growth, normal tool results return only the compact resume contract needed for the next action.
+
+Use compact defaults during normal work:
+
+```text
+task_resume
+/tasks
+```
+
+Use detailed output only when inspecting or debugging task history:
+
+```text
+/tasks detail
+task_list include_evidence=true
+```
+
+Keep evidence summaries short. Put long command logs, diffs, or transcripts in referenced files or artifact paths instead of pasting them into evidence text.
 
 ## Completion Rules
 
