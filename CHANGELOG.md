@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.2] - Unreleased
+## [0.1.3] - 2026-06-20
 
 ### Changed
 - Added a token-efficient output contract: mutation tools now return compact `task_resume` guidance instead of full task/evidence dumps.
@@ -16,6 +16,12 @@
 - Unit coverage for compact `/tasks`, explicit detail mode, compact tool `details`, and bounded evidence rendering.
 - Added `task_next` for weak or small-context models to get one recommended next tool, current-step lock, blocked tools, and minimum params.
 - Unit coverage for `task_next`, structured rejection recovery, compound atomic rejection, evidence budgets, and current-step evidence locking.
+- Added `npm run release:check` to rerun typecheck, lint/format checks, unit tests, build, source/dist import smokes, pack dry-run, clean tarball install, and audit.
+- Added fixed English and Traditional Chinese weak-model dogfood prompts for release validation.
+
+## [0.1.2] - 2026-06-20
+
+Internal release candidate. Superseded by `0.1.3` before npm publication.
 
 ## [0.1.1] - 2026-06-19
 

@@ -97,6 +97,7 @@ Forced completion requires `force_with_reason`; the task is marked done with con
 
 Current local verification:
 
+- `npm run release:check`
 - `tsc --noEmit`
 - `biome check --write --error-on-warnings index.ts src test docs README.md CHANGELOG.md package.json package-lock.json tsconfig.json tsconfig.build.json`
 - `vitest --run test/unit/`
@@ -107,7 +108,7 @@ Current local verification:
 - tarball install plus `node -e "import('pi-tasks')"`
 - `npm audit --audit-level=low` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
 
-Real Pi dogfood passed on 2026-06-18 and 2026-06-19 with isolated session storage under `/private/tmp/pi-tasks-dogfood/sessions` and `/private/tmp/pi-tasks-release-dogfood/sessions`:
+Real Pi dogfood passed on 2026-06-18, 2026-06-19, and 2026-06-20 with isolated session storage under `/private/tmp/pi-tasks-dogfood/sessions`, `/private/tmp/pi-tasks-release-dogfood/sessions`, and `/private/tmp/pi-tasks-release-013-dogfood/sessions`:
 
 - task creation, progress update, evidence rejection, evidence attachment, completion, and detailed listing,
 - ordered step completion and rejection of out-of-order step updates,
@@ -120,10 +121,13 @@ Real Pi dogfood passed on 2026-06-18 and 2026-06-19 with isolated session storag
 - live TTY `/tasks` command and clean `/quit`,
 - forked-session replay of copied `pi-tasks:event` custom entries,
 - `pi install ./`, tarball install, installed-package import, and installed `dist/index.js` Pi smoke.
+- fixed English and Traditional Chinese weak-model dogfood prompts,
+- 0.1.3 installed-package weak-model smoke through `./node_modules/pi-tasks/dist/index.js`.
 
 Start here:
 
 - [Product Plan](docs/PRODUCT_PLAN.md) - product positioning, scope, research, and `/goal` boundary.
 - [Implementation Specification](docs/IMPLEMENTATION_SPEC.md) - typed data contracts, reducer rules, tool contracts, TUI minimum spec, and completion checklist.
 - [Dogfood Checklist](docs/DOGFOOD.md) - real Pi dogfood scenarios and current status.
+- [Weak-Model Dogfood Prompts](docs/dogfood-prompts/) - fixed English and Traditional Chinese prompts for release validation.
 - [Release Process](docs/RELEASE_PROCESS.md) - gates required before publishing.

@@ -4,9 +4,9 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 ## Current Status
 
-Date: 2026-06-19
+Date: 2026-06-20
 
-Result: passed for the scoped MVP dogfood gate and release-hardening dogfood gate.
+Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, and installed-package smoke.
 
 Environment:
 
@@ -48,6 +48,11 @@ Environment:
 - Weak-model hardening session ID: `weakmodel-hardening-1`
 - Installed weak-model hardening session directory: `/private/tmp/pi-tasks-weakmodel-release-check/sessions`
 - Installed weak-model hardening session ID: `weakmodel-installed-hardening-1`
+- 0.1.3 release dogfood session directory: `/private/tmp/pi-tasks-release-013-dogfood/sessions`
+- 0.1.3 English weak-model session ID: `release-013-weak-en`
+- 0.1.3 Chinese weak-model session ID: `release-013-weak-zh`
+- 0.1.3 final installed package session directory: `/private/tmp/pi-tasks-release-013-installed-final/sessions`
+- 0.1.3 final installed weak-model session ID: `release-013-installed-final-weak`
 
 ## Passed Scenarios
 
@@ -108,6 +113,11 @@ Environment:
 - Confirmed future-step evidence is rejected unless current-step lock is overridden with an explicit reason.
 - Confirmed oversized evidence summary is rejected and long output is directed to artifact references.
 - Confirmed installed 0.1.2 tarball runtime exposes `task_next` and structured recovery for compound atomic rejection.
+- Confirmed `npm run release:check` passes for 0.1.3, including typecheck, check, unit tests, build, source/dist import smokes, pack dry-run, clean tarball install, and audit.
+- Confirmed fixed weak-model dogfood prompts are stored under `docs/dogfood-prompts/`.
+- Confirmed 0.1.3 source runtime rejects English compound atomic wording, oversized evidence summaries, and future-step evidence without override while `task_next` returns the current-step lock and only next tool.
+- Confirmed 0.1.3 source runtime rejects Chinese compound atomic wording and returns structured recovery with `retry_with` and `do_not_retry_same_call`.
+- Confirmed 0.1.3 installed tarball runtime exposes `task_next` and structured recovery through `./node_modules/pi-tasks/dist/index.js`.
 
 ## Commands
 
@@ -452,6 +462,84 @@ gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-weakmodel-re
 
 Observed result: installed runtime exposed `task_next`; compound atomic step was rejected; structured recovery included `retry_with: task_plan`, `do_not_retry_same_call: true`, a reason, and resume guidance.
 
+0.1.3 release check:
+
+```sh
+npm run release:check
+```
+
+Observed result: passed. The gate ran typecheck, Biome check, 48 unit tests, build, source import smoke, dist import smoke, npm pack dry-run, clean tarball install plus `node -e "import('pi-tasks')"`, and `npm audit --audit-level=low`.
+
+0.1.3 source weak-model hardening dogfood:
+
+```sh
+rm -rf /private/tmp/pi-tasks-release-013-dogfood
+mkdir -p /private/tmp/pi-tasks-release-013-dogfood/sessions
+gtimeout 180s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-013-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_next,task_plan,task_evidence,task_list \
+  --session-id release-013-weak-en \
+  --name release-013-weak-en \
+  -p "<docs/dogfood-prompts/weak-model-en.md source extension prompt>"
+```
+
+Observed result:
+
+- compound atomic rejection: `Plan step 1 failed quality gate: step text uses vague or broad wording; step text appears to contain multiple actions`
+- oversized evidence rejection: `Evidence summary exceeds 500 characters; put long output in artifactRefs`
+- final `task_next`: only next tool `task_evidence`, current step lock `T1-S1`
+- compact `task_list`: `T1 [active] 1% criteria:0/1 - Weak Model Hardening`
+
+0.1.3 current-step lock probe:
+
+```sh
+gtimeout 90s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-013-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_evidence,task_next \
+  --session-id release-013-weak-en \
+  --name release-013-weak-en \
+  -p "Current-step lock probe. The active task is T1 and the current step should be T1-S1. Call task_evidence once for task_id T1 targeting future step_ids [\"T1-S2\"] and criterion_ids [\"T1-AC1\"]. Use complete quality fields and do not provide override_reason. Report the exact rejection and then call task_next."
+```
+
+Observed result: `Evidence step_ids must target current step T1-S1; overrideReason is required for T1-S2`; `task_next` still reported only next tool `task_evidence` and current step lock `T1-S1`.
+
+0.1.3 Chinese weak-model smoke:
+
+```sh
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-013-dogfood/sessions \
+  pi --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_next,task_plan,task_list \
+  --session-id release-013-weak-zh \
+  --name release-013-weak-zh \
+  -p "<docs/dogfood-prompts/weak-model-zh-TW.md installed package smoke prompt>"
+```
+
+Observed result: no active task caused `task_next` to recommend `task_plan`; Chinese compound wording was rejected; structured recovery included `retry_with: task_plan` and `do_not_retry_same_call: true`.
+
+0.1.3 final installed package weak-model smoke:
+
+```sh
+rm -rf /private/tmp/pi-tasks-release-013-installed-final
+mkdir -p /private/tmp/pi-tasks-release-013-installed-final/tarball /private/tmp/pi-tasks-release-013-installed-final/consumer /private/tmp/pi-tasks-release-013-installed-final/sessions
+npm pack --pack-destination /private/tmp/pi-tasks-release-013-installed-final/tarball
+cd /private/tmp/pi-tasks-release-013-installed-final/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-release-013-installed-final/tarball/pi-tasks-0.1.3.tgz
+node -e "import('pi-tasks')"
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-013-installed-final/sessions \
+  pi --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_next,task_plan \
+  --session-id release-013-installed-final-weak \
+  --name release-013-installed-final-weak \
+  -p "<docs/dogfood-prompts/weak-model-en.md installed package smoke prompt>"
+```
+
+Observed result: installed runtime exposed `task_next`; compound atomic step was rejected; structured recovery included `retry_with: task_plan`, `do_not_retry_same_call: true`, and no-active-task resume guidance. Final tarball shasum: `9a3d50a4b97088fb551e36e024b29f5547091e59`.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -472,6 +560,9 @@ Also passed on 2026-06-19:
 - 0.1.2 installed-package token-output Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 - weak-model hardening Pi dogfood for `task_next`, compound plan rejection, current-step evidence lock, and evidence budget rejection
 - 0.1.2 installed-package weak-model smoke for `task_next` and structured recovery
+- 0.1.3 `npm run release:check`
+- 0.1.3 source weak-model English and Chinese dogfood
+- 0.1.3 installed-package weak-model smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 
