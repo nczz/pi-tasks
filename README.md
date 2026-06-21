@@ -1,133 +1,155 @@
 # pi-tasks
 
-Pi-native task and progress contract for agents and users.
+> Pi-native execution contracts for AI agents — no more "trust me, it's done."
 
-`pi-tasks` is a Pi extension that keeps implementation work aligned with explicit requirements, visible progress, verification evidence, and user decisions. It is not a generic todo list. It is a session-aware execution contract for agentic development.
+## Why pi-tasks?
 
-## MVP Capabilities
+AI coding agents say "done" without proof. Context compaction loses progress. Multi-step work drifts without anyone noticing. You end up asking "what's the status?" over and over.
 
-- Typed task, acceptance criterion, evidence, decision, blocker, and event model.
-- Pure reducer with transition validation and evidence-before-completion enforcement.
-- Ordered plan steps from `initial_steps` or structured `plan_steps`; agents must complete or skip the current step before advancing.
-- Step-level contracts with expected output, linked criteria, required evidence, and allowed actions.
-- Plan quality gate rejects atomic steps that are vague, unverifiable, over-broad, or missing concrete allowed actions.
-- Stricter atomic step scoring rejects obvious multi-action wording such as `and`, `then`, `並且`, or `然後` in an atomic step.
-- Recursive decomposition gate: non-atomic steps must be broken into smaller child steps before execution can be marked done.
-- Step-scoped evidence through `task_evidence.step_ids`, preventing one criterion-level evidence item from accidentally satisfying multiple atomic steps.
-- Current-step evidence lock: step evidence must target the current open step unless an explicit override reason is supplied.
-- Evidence quality gate requires traceable, reproducible evidence with artifact references and observed output for test/command/dogfood evidence.
-- Evidence budget gate rejects oversized summaries, references, commands, sources, artifact refs, and observed output so long logs stay in artifacts instead of context.
-- Compaction-resilient resume contract through `task_resume`, `task_checkpoint`, and snapshot resume fields.
-- Tool rejections include structured recovery details plus `task_resume` guidance so weaker models can self-correct after errors.
-- `task_next` provides a one-step weak-model contract with mode, current-step lock, the only recommended next tool, blocked tools, and minimum params.
-- Current-step focus tool that tells the agent exactly what work is in scope before acting.
-- Scope drift recording for scope changes and off-plan activity.
-- Derived progress automatically advances from completed steps, satisfied criteria, and evidence while preserving manual progress updates.
-- Duplicate evidence detection by type, level, passed status, summary, and references.
-- Branch-aware persistence through Pi custom entries with custom type `pi-tasks:event`.
-- Session replay from `ctx.sessionManager.getBranch()` on `session_start` and `session_tree`.
-- Agent tools: `task_plan`, `task_next`, `task_focus`, `task_resume`, `task_checkpoint`, `task_granularity_check`, `task_decompose`, `task_list`, `task_update`, `task_evidence`, `task_decision`, and `task_complete`.
-- User command: `/tasks`.
-- Compact status and above-editor widget through `ctx.ui.setStatus` and `ctx.ui.setWidget`.
-- Compaction snapshot hook via `session_before_compact`.
-- Token-efficient output contract: mutation tools return compact resume guidance by default, tool `details` avoid full task state, `/tasks` defaults to compact summary, and `/tasks detail` is the explicit detailed view.
-- npm package runtime is built to `dist/`; source `index.ts` remains usable for local extension development.
+**pi-tasks** gives your Pi agent a binding execution contract: structured plans, evidence gates, ordered execution, and compaction-safe resume — all visible in your TUI.
+
+## What makes it different
+
+Every other task tool for AI agents is just a todo list. pi-tasks enforces three hard contracts no competitor offers:
+
+| Contract | What it means |
+|----------|---------------|
+| **Evidence-gated completion** | Agents cannot mark work done without traceable, reproducible proof |
+| **Atomic step decomposition** | Vague or compound steps are rejected; non-atomic steps must be broken down before execution |
+| **Compaction-safe resume** | Context window limits don't lose your progress — snapshot replay picks up exactly where you left off |
+
+Plus: ordered step execution, scope drift detection, weak-model recovery guidance, decision/blocker audit trails, and branch-aware persistence.
+
+## Competitive landscape
+
+Different tools solve different parts of the agentic workflow. Pick based on what matters most to your team:
+
+| Tool | Focus | Strengths | Trade-offs |
+|------|-------|-----------|------------|
+| **Claude Code Tasks** (built-in) | Cross-session coordination | Shared task lists, dependency tracking, zero setup | No completion verification, no step-level contracts |
+| **rpiv-pi** (9.4K/mo, 413★) | Structured workflows | 6 end-to-end flows, 12 subagents, code-review loops | Workflow-oriented; task visibility via separate rpiv-todo |
+| **@tintinweb/pi-tasks** (3.2K/mo, 113★) | Task tracking & subagents | Dependency DAG, auto-cascade, file/session/project scoping | Tracks progress; completion is self-reported |
+| **Microsoft hve-core** (1,183★) | RPI workflow for Copilot | Research→Plan→Implement→Review, custom agents | Copilot-native; not designed for Pi |
+| **pi-tasks** (this project) | Execution contracts | Evidence-gated completion, atomic decomposition, compaction-safe resume | Narrower scope; no subagent orchestration (yet) |
+
+**pi-tasks is for you if** your core problem is agents claiming "done" without proof, plans drifting mid-execution, or context compaction losing progress. If you need workflow orchestration or multi-agent coordination, the tools above may be a better fit — or complement pi-tasks.
 
 ## Install
-
-After the npm package is published:
 
 ```sh
 pi install npm:pi-tasks
 ```
 
-For local development from this checkout:
+For local development:
 
 ```sh
 pi install ./
 ```
 
-## Token Usage
+## How it works
 
-`pi-tasks` stores durable task state in Pi custom entries for replay, fork, and compaction resilience. To avoid unnecessary context growth, normal tool results return only the compact resume contract needed for the next action.
+```
+task_plan → ordered steps with acceptance criteria
+    ↓
+task_focus → agent sees exactly what's in scope
+    ↓
+task_update → step-by-step execution with evidence lock
+    ↓
+task_evidence → attach proof before marking done
+    ↓
+task_complete → only succeeds when all gates pass
+```
 
-Use compact defaults during normal work:
+The agent gets 12 tools. The user gets `/tasks`. Everything persists in Pi's session tree.
+
+## Agent Tools
+
+| Tool | Purpose |
+|------|---------|
+| `task_plan` | Create a task with objectives, criteria, and ordered steps |
+| `task_next` | One-step guidance for weak/small-context models |
+| `task_focus` | What work is in scope right now |
+| `task_resume` | Recover state after compaction or session switch |
+| `task_checkpoint` | Save a durable snapshot for compaction resilience |
+| `task_granularity_check` | Verify a step is truly atomic |
+| `task_decompose` | Break non-atomic steps into child steps |
+| `task_list` | List tasks with optional filtering |
+| `task_update` | Advance steps, record activity, flag scope drift |
+| `task_evidence` | Attach verification evidence to steps/criteria |
+| `task_decision` | Record explicit user decisions |
+| `task_complete` | Close a task (only if all gates pass) |
+
+## Completion Gates
+
+`task_complete` rejects when:
+
+- No evidence exists
+- Any ordered plan step is still active or pending
+- Required criteria are not satisfied
+- A criterion is satisfied without evidence
+- Unresolved blockers remain
+- Unresolved scope drift warnings remain
+- All evidence is only `not_verified`
+
+Forced completion requires `force_with_reason` and produces a low-confidence warning.
+
+## Token Efficiency
+
+Normal tool results return only the compact resume contract needed for the next action — not the full task state.
 
 ```text
+# Compact defaults during work:
 task_next
 task_resume
 /tasks
-```
 
-Use detailed output only when inspecting or debugging task history:
-
-```text
+# Detailed view only when debugging:
 /tasks detail
 task_list include_evidence=true
 ```
 
-Keep evidence summaries short. Put long command logs, diffs, or transcripts in referenced files or artifact paths instead of pasting them into evidence text.
+## Technical Details
 
-## Completion Rules
+### Capabilities
 
-`task_update` rejects unsupported step completion when:
+- Typed task, acceptance criterion, evidence, decision, blocker, and event model
+- Pure reducer with transition validation and evidence-before-completion enforcement
+- Ordered plan steps; agents must complete or skip the current step before advancing
+- Step-level contracts with expected output, linked criteria, required evidence, and allowed actions
+- Plan quality gate rejects vague, unverifiable, or over-broad atomic steps
+- Stricter atomic scoring rejects compound wording (`and`, `then`, `並且`, `然後`)
+- Recursive decomposition gate for non-atomic steps
+- Step-scoped evidence through `task_evidence.step_ids`
+- Current-step evidence lock unless explicit `override_reason` is supplied
+- Evidence quality gate: traceable, reproducible, with artifact references
+- Evidence budget gate: oversized text is rejected to keep context lean
+- Tool rejections include structured recovery details + `task_resume` guidance
+- `task_next` one-step weak-model contract with mode, current-step lock, recommended tool, blocked tools, minimum params
+- Scope drift recording for `scope_change` and `off_plan` activity
+- Derived progress from completed steps, satisfied criteria, and evidence
+- Duplicate evidence detection
+- Branch-aware persistence via Pi custom entries (`pi-tasks:event`)
+- Session replay from `ctx.sessionManager.getBranch()` on `session_start` and `session_tree`
+- Compaction snapshot hook via `session_before_compact`
+- Compact status bar and above-editor widget
 
-- a later step is updated before the current open step,
-- a non-atomic step is marked done before recursive decomposition,
-- an evidence-required step is marked done before linked evidence exists,
-- evidence lacks traceable quality fields such as artifact references or observed output,
-- evidence targets a non-current step without `override_reason`,
-- evidence text exceeds the configured summary/reference/observed-output budget,
-- a step is skipped without a reason or note,
-- or `scope_change` / `off_plan` activity is recorded without `scope_reason`.
+### Verification
 
-`task_complete` rejects unsupported completion when:
+Local verification suite:
 
-- no evidence exists,
-- any ordered plan step is still active or pending,
-- required criteria are not satisfied or skipped,
-- a criterion is marked satisfied without evidence,
-- there is an unresolved blocker,
-- unresolved `scope_change` or `off_plan` warnings remain,
-- or all completion evidence is only `not_verified`.
+- `npm run release:check` (typecheck + lint + test + build + import smoke + pack + audit)
+- Real Pi dogfood passed on 2026-06-18, 2026-06-19, and 2026-06-20
 
-Forced completion requires `force_with_reason`; the task is marked done with confidence below 80 and a warning.
+Dogfood coverage includes: task lifecycle, evidence enforcement, ordered step rejection, structured plan steps, recursive decomposition, compaction-safe resume, duplicate evidence rejection, blocked task display, forked-session replay, tarball install, and weak-model smoke.
 
-## Verification
+## Documentation
 
-Current local verification:
+- [Product Plan](docs/PRODUCT_PLAN.md) — positioning, scope, research, and `/goal` boundary
+- [Implementation Specification](docs/IMPLEMENTATION_SPEC.md) — data contracts, reducer rules, tool contracts, TUI spec
+- [Dogfood Checklist](docs/DOGFOOD.md) — real Pi dogfood scenarios and status
+- [Weak-Model Prompts](docs/dogfood-prompts/) — English and Traditional Chinese validation prompts
+- [Release Process](docs/RELEASE_PROCESS.md) — gates required before publishing
 
-- `npm run release:check`
-- `tsc --noEmit`
-- `biome check --write --error-on-warnings index.ts src test docs README.md CHANGELOG.md package.json package-lock.json tsconfig.json tsconfig.build.json`
-- `vitest --run test/unit/`
-- `tsc -p tsconfig.build.json`
-- `node --experimental-strip-types -e "import('./index.ts')"`
-- `node -e "import('./dist/index.js')"`
-- `npm pack --dry-run` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
-- tarball install plus `node -e "import('pi-tasks')"`
-- `npm audit --audit-level=low` with `npm_config_cache=/private/tmp/pi-tasks-npm-cache`
+## License
 
-Real Pi dogfood passed on 2026-06-18, 2026-06-19, and 2026-06-20 with isolated session storage under `/private/tmp/pi-tasks-dogfood/sessions`, `/private/tmp/pi-tasks-release-dogfood/sessions`, and `/private/tmp/pi-tasks-release-013-dogfood/sessions`:
-
-- task creation, progress update, evidence rejection, evidence attachment, completion, and detailed listing,
-- ordered step completion and rejection of out-of-order step updates,
-- structured `plan_steps`, current-step focus, step evidence requirement, and scope drift rejection/warning,
-- recursive decomposition of non-atomic steps into atomic child steps,
-- compaction-safe resume from snapshot replay, including decomposed child-step lineage and next allowed actions,
-- duplicate evidence rejection without creating an extra evidence record,
-- same-session resume with replayed custom entries,
-- blocked task display with blocker source, resolved blocker audit trail, explicit user decision, and unblock condition,
-- live TTY `/tasks` command and clean `/quit`,
-- forked-session replay of copied `pi-tasks:event` custom entries,
-- `pi install ./`, tarball install, installed-package import, and installed `dist/index.js` Pi smoke.
-- fixed English and Traditional Chinese weak-model dogfood prompts,
-- 0.1.3 installed-package weak-model smoke through `./node_modules/pi-tasks/dist/index.js`.
-
-Start here:
-
-- [Product Plan](docs/PRODUCT_PLAN.md) - product positioning, scope, research, and `/goal` boundary.
-- [Implementation Specification](docs/IMPLEMENTATION_SPEC.md) - typed data contracts, reducer rules, tool contracts, TUI minimum spec, and completion checklist.
-- [Dogfood Checklist](docs/DOGFOOD.md) - real Pi dogfood scenarios and current status.
-- [Weak-Model Dogfood Prompts](docs/dogfood-prompts/) - fixed English and Traditional Chinese prompts for release validation.
-- [Release Process](docs/RELEASE_PROCESS.md) - gates required before publishing.
+MIT
