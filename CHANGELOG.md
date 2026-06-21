@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4] - 2026-06-21
+
+### Changed
+- Rewrote README with user-oriented market positioning, competitive landscape comparison, and streamlined structure.
+- Updated package.json description to reflect execution-contract positioning.
+- Set GitHub repo description, topics, and homepage via `gh repo edit`.
+
 ## [0.1.3] - 2026-06-20
 
 ### Changed
