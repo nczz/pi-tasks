@@ -1,6 +1,6 @@
 {
 	"name": "pi-tasks",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "Pi-native execution contracts for AI agents — evidence-gated completion, ordered plans, and compaction-safe resume",
 	"type": "module",
 	"main": "dist/index.js",

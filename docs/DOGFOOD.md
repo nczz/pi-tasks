@@ -4,9 +4,9 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 ## Current Status
 
-Date: 2026-06-20
+Date: 2026-06-23
 
-Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, and installed-package smoke.
+Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, and 0.1.5 receiver-bound append compatibility release gate.
 
 Environment:
 
@@ -53,6 +53,11 @@ Environment:
 - 0.1.3 Chinese weak-model session ID: `release-013-weak-zh`
 - 0.1.3 final installed package session directory: `/private/tmp/pi-tasks-release-013-installed-final/sessions`
 - 0.1.3 final installed weak-model session ID: `release-013-installed-final-weak`
+- 0.1.5 release dogfood session directory: `/private/tmp/pi-tasks-release-015-dogfood/sessions`
+- 0.1.5 source lifecycle session ID: `release-015-source-lifecycle`
+- 0.1.5 fork replay session name: `release-015-fork-replay`
+- 0.1.5 final installed package smoke directory: `/private/tmp/pi-tasks-release-015-installed-final2`
+- 0.1.5 final installed package smoke session ID: `release-015-installed-final2-smoke`
 
 ## Passed Scenarios
 
@@ -118,6 +123,12 @@ Environment:
 - Confirmed 0.1.3 source runtime rejects English compound atomic wording, oversized evidence summaries, and future-step evidence without override while `task_next` returns the current-step lock and only next tool.
 - Confirmed 0.1.3 source runtime rejects Chinese compound atomic wording and returns structured recovery with `retry_with` and `do_not_retry_same_call`.
 - Confirmed 0.1.3 installed tarball runtime exposes `task_next` and structured recovery through `./node_modules/pi-tasks/dist/index.js`.
+- Confirmed 0.1.5 source runtime creates and completes task `T1` with decision `D1`, evidence `E1`, status `done`, 100% progress, and criterion `1/1` for receiver-bound append compatibility dogfood.
+- Confirmed 0.1.5 same-session resume restores completed task `T1`, evidence `E1`, and decision `D1`.
+- Confirmed 0.1.5 fork replay restores completed task `T1`, evidence `E1`, decision `D1`, and satisfied criterion state.
+- Confirmed live TTY `/tasks` default excludes done tasks, while `/tasks detail` renders `T1 [done]`, decision `D1`, evidence `E1`, and criterion `T1-AC1`.
+- Confirmed live TTY `/quit` exits cleanly and prints the Pi resume command.
+- Confirmed 0.1.5 clean tarball install supports `import("pi-tasks")` and installed-package Pi runtime creates task `T1` through `./node_modules/pi-tasks/dist/index.js`.
 
 ## Commands
 
@@ -540,6 +551,84 @@ gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-013-
 
 Observed result: installed runtime exposed `task_next`; compound atomic step was rejected; structured recovery included `retry_with: task_plan`, `do_not_retry_same_call: true`, and no-active-task resume guidance. Final tarball shasum: `9a3d50a4b97088fb551e36e024b29f5547091e59`.
 
+0.1.5 receiver-bound append compatibility source dogfood:
+
+```sh
+gtimeout 180s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-dogfood/sessions \
+  pi --provider openai-codex --model gpt-5.5 \
+  --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_plan,task_update,task_evidence,task_decision,task_complete,task_list \
+  --session-id release-015-source-lifecycle \
+  --name release-015-source-lifecycle \
+  -p "Release 0.1.5 source dogfood. Create a valid task named Receiver Append Compatibility with one acceptance criterion and one atomic plan step. Do not set criterionIds manually. Update progress to 50 and next_action to record evidence. Record one agent decision about supporting receiver-bound appendEntry methods. Record passing test evidence for T1-AC1 and T1-S1 with complete quality fields. Mark T1-S1 done with evidence E1. Complete T1 with evidence E1. Call task_list with include_done=true and include_evidence=true. Report created task id, decision id, evidence id, and final status."
+```
+
+Observed result: created task `T1`, decision `D1`, evidence `E1`, final status `done`, progress `100%`, criteria `1/1`, evidence `1`.
+
+0.1.5 same-session resume:
+
+```sh
+gtimeout 90s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-dogfood/sessions \
+  pi --provider openai-codex --model gpt-5.5 \
+  --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_list,task_resume \
+  --session-id release-015-source-lifecycle \
+  -p "Release 0.1.5 resume dogfood. Call task_resume and task_list with include_done=true and include_evidence=true. Report whether task T1 is restored as done with evidence E1 and decision D1."
+```
+
+Observed result: `T1` restored as done, evidence `E1` present, decision `D1` present, and no active task after completion.
+
+0.1.5 fork replay:
+
+```sh
+gtimeout 90s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-dogfood/sessions \
+  pi --provider openai-codex --model gpt-5.5 \
+  --no-extensions --extension ./index.ts \
+  --no-builtin-tools \
+  --tools task_list \
+  --fork release-015-source-lifecycle \
+  --name release-015-fork-replay \
+  -p "Release 0.1.5 fork replay dogfood. Call task_list with include_done=true and include_evidence=true. Report whether fork replay restored task T1 as done with evidence E1."
+```
+
+Observed result: fork replay restored `T1` as done with evidence `E1`, decision `D1`, and acceptance criteria `1/1` satisfied.
+
+0.1.5 live TTY `/tasks` and clean exit:
+
+```sh
+env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-dogfood/sessions \
+  pi --provider openai-codex --model gpt-5.5 \
+  --no-extensions --extension ./index.ts \
+  --session-id release-015-source-lifecycle
+```
+
+Observed result: `/tasks` returned `No tasks on this branch.` because compact default excludes completed tasks; `/tasks detail` rendered `T1 [done]`, decision `D1`, evidence `E1`, and `T1-AC1`; `/quit` exited cleanly and printed the Pi resume command.
+
+0.1.5 final installed package smoke:
+
+```sh
+mkdir -p /private/tmp/pi-tasks-release-015-installed-final2/tarball /private/tmp/pi-tasks-release-015-installed-final2/consumer /private/tmp/pi-tasks-release-015-installed-final2/sessions
+env npm_config_cache=/private/tmp/pi-tasks-release-015-installed-final2/npm-cache \
+  npm pack --pack-destination /private/tmp/pi-tasks-release-015-installed-final2/tarball
+cd /private/tmp/pi-tasks-release-015-installed-final2/consumer
+npm init -y
+env npm_config_cache=/private/tmp/pi-tasks-release-015-installed-final2/npm-cache \
+  npm install /private/tmp/pi-tasks-release-015-installed-final2/tarball/pi-tasks-0.1.5.tgz
+node -e "import('pi-tasks')"
+gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-installed-final2/sessions \
+  pi --provider openai-codex --model gpt-5.5 \
+  --no-extensions --extension ./node_modules/pi-tasks/dist/index.js \
+  --no-builtin-tools \
+  --tools task_plan,task_list \
+  --session-id release-015-installed-final2-smoke \
+  --name release-015-installed-final2-smoke \
+  -p "Release 0.1.5 final installed package smoke. Create a valid task named Final Installed Receiver Smoke with one acceptance criterion and one atomic plan step. Do not set criterionIds manually. Call task_list and report the created task id and current status."
+```
+
+Observed result: tarball `pi-tasks-0.1.5.tgz` was created; clean consumer import passed; installed runtime created task `T1` with status `active`.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -563,6 +652,8 @@ Also passed on 2026-06-19:
 - 0.1.3 `npm run release:check`
 - 0.1.3 source weak-model English and Chinese dogfood
 - 0.1.3 installed-package weak-model smoke through `./node_modules/pi-tasks/dist/index.js`
+- 0.1.5 source lifecycle, same-session resume, fork replay, live `/tasks detail`, and clean `/quit`
+- 0.1.5 clean tarball install plus installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 

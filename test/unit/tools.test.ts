@@ -16,6 +16,12 @@ class FixedIds {
 	}
 }
 
+type ReceiverBoundPi = ExtensionAPI & {
+	runtime: {
+		entries: TaskEvent[];
+	};
+};
+
 function createHarness() {
 	const tools = new Map<string, ToolDefinition<Record<string, unknown>>>();
 	const entries: TaskEvent[] = [];
@@ -23,12 +29,14 @@ function createHarness() {
 		status: undefined as string | undefined,
 		widget: undefined as string[] | undefined,
 	};
-	const pi: ExtensionAPI = {
+	const pi: ReceiverBoundPi = {
+		runtime: { entries },
 		on: () => {},
 		registerTool: (tool) => tools.set(tool.name, tool),
 		registerCommand: () => {},
-		appendEntry: (_customType, data) => {
-			entries.push(data as TaskEvent);
+		appendEntry(customType, data) {
+			expect(customType).toBe(TASK_EVENT_CUSTOM_TYPE);
+			this.runtime.entries.push(data as TaskEvent);
 		},
 	};
 	const ctx: ExtensionContext = {
@@ -75,6 +83,63 @@ function requireTool(
 }
 
 describe("registered task tools", () => {
+	it("preserves ExtensionAPI method receivers when appending task events", async () => {
+		const { tools, ctx, store } = createHarness();
+		const plan = requireTool(tools, "task_plan");
+		const decision = requireTool(tools, "task_decision");
+
+		const created = await execute(
+			plan,
+			{
+				title: "Receiver compatibility",
+				objective:
+					"Verify task_plan works with receiver-bound ExtensionAPI methods",
+				acceptance_criteria: ["Task event is appended through ExtensionAPI"],
+				plan_steps: [
+					{
+						text: "Record receiver compatibility evidence",
+						expectedOutput: "Receiver-bound appendEntry stores a task event",
+						criterionIds: ["T1-AC1"],
+						evidenceRequired: true,
+						allowedActions: ["task_plan"],
+						decompositionStatus: "atomic",
+						granularityCheck: {
+							isAtomic: true,
+							reason: "Single tool call records one task event",
+							canBeDoneInOneAgentAction: true,
+							hasSingleObservableOutput: true,
+							hasSingleVerificationMethod: true,
+							hasNoHiddenSubtasks: true,
+						},
+					},
+				],
+				activate: true,
+			},
+			ctx,
+		);
+
+		expect(created.content[0]?.text).toContain("Created task T1");
+		expect(store.getState().tasks.T1?.title).toBe("Receiver compatibility");
+		const recorded = await execute(
+			decision,
+			{
+				task_id: "T1",
+				question: "Which host API style must pi-tasks support?",
+				decision:
+					"Support both closure-backed and receiver-bound ExtensionAPI methods",
+				decided_by: "agent",
+				rationale:
+					"Pi uses closure-backed methods; OMP may use receiver-bound methods.",
+			},
+			ctx,
+		);
+
+		expect(recorded.content[0]?.text).toContain("Recorded decision D1");
+		expect(store.getState().tasks.T1?.decisions[0]?.decision).toBe(
+			"Support both closure-backed and receiver-bound ExtensionAPI methods",
+		);
+	});
+
 	it("does not consume task IDs for rejected task_plan calls", async () => {
 		const { tools, ctx, store } = createHarness();
 		const plan = requireTool(tools, "task_plan");

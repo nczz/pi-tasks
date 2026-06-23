@@ -748,7 +748,9 @@ function appendAndReport(
 	success: string,
 ): ToolResult {
 	try {
-		const state = store.append(event, pi.appendEntry);
+		const state = store.append(event, (customType, data) => {
+			pi.appendEntry(customType, data);
+		});
 		updateTaskUi(ctx, state);
 		const warning =
 			event.type === "task.completed" && event.forceWithReason

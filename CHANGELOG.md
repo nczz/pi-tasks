@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.5] - 2026-06-23
+
+### Fixed
+- Preserved `ExtensionAPI.appendEntry` method receivers when task tools append events, so receiver-bound host API implementations work without callers rebinding methods.
+
+### Added
+- Added unit coverage for receiver-bound `appendEntry` compatibility across task tool event appends.
+- Added 0.1.5 release dogfood evidence for source task lifecycle, decision/evidence replay, fork replay, `/tasks detail`, and clean `/quit`.
+
 ## [0.1.4] - 2026-06-21
 
 ### Changed
