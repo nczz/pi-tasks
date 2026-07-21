@@ -108,6 +108,74 @@ task_resume
 task_list include_evidence=true
 ```
 
+## Custom task UI
+
+pi-tasks publishes a versioned state snapshot after restoring its default widget
+and after every successful task mutation. Other Pi extensions can subscribe
+without importing or patching pi-tasks internals:
+
+```ts
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import {
+  TASK_STATE_EVENT,
+  type TaskStateEvent,
+} from "pi-tasks";
+
+export default function customTaskUi(pi: ExtensionAPI) {
+  let ctx: ExtensionContext | undefined;
+  let latest: TaskStateEvent | undefined;
+
+  const render = () => {
+    if (!ctx || !latest) return;
+    const active = latest.state.activeTaskId
+      ? latest.state.tasks[latest.state.activeTaskId]
+      : undefined;
+    ctx.ui.setWidget(
+      latest.widgetId,
+      active ? [`Custom task: ${active.id} ${active.title}`] : undefined,
+      { placement: "aboveEditor" },
+    );
+  };
+  const attach = (nextCtx: ExtensionContext) => {
+    ctx = nextCtx;
+    render();
+  };
+
+  pi.on("session_start", (_event, nextCtx) => attach(nextCtx));
+  pi.on("session_tree", (_event, nextCtx) => attach(nextCtx));
+  pi.on("session_shutdown", () => {
+    ctx = undefined;
+    latest = undefined;
+  });
+  pi.events.on(TASK_STATE_EVENT, (value: unknown) => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      (value as { version?: unknown }).version !== 1
+    ) return;
+    latest = value as TaskStateEvent;
+    render();
+  });
+}
+```
+
+Event contract:
+
+- name: `pi-tasks:state` (`TASK_STATE_EVENT`);
+- payload version: `1`;
+- reasons: `session_start`, `session_tree`, or `task_mutation`;
+- `widgetId`: stable default widget key, currently `pi-tasks`;
+- `state`: structured-cloned task snapshot with event history omitted.
+
+The default widget is installed before publication, so a synchronous subscriber
+may replace it through the supported widget key. With no subscriber, existing
+pi-tasks UI behavior is unchanged. Consumer mutations affect only their cloned
+snapshot, never runtime task state. Payloads can include task text, decisions,
+blockers, and evidence references; custom UI extensions should keep them local.
+
 ## Technical Details
 
 ### Capabilities

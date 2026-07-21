@@ -28,6 +28,15 @@ This project must align with the commercial-quality bar established by `pi-knowl
   - lifecycle events such as `session_start`, `session_tree`, `turn_end`, and `session_shutdown`
 - MCP or Markdown export can be added later, but should not replace the Pi-native core.
 
+## Task State Event Contract
+
+- Publish `pi-tasks:state` only after the default status/widget refresh completes.
+- Publish on `session_start`, `session_tree`, and every successful persisted task mutation; rejected mutations must not publish.
+- Keep payload versioned. Version 1 contains `reason`, stable `widgetId`, and a task-state snapshot without raw event history.
+- Structured-clone snapshots before publication so consumers cannot mutate runtime store state.
+- Isolate observer failures from task persistence and tool success.
+- Preserve default UI when no consumer subscribes. A synchronous consumer may intentionally replace the default widget through the published `widgetId`.
+
 ## Implementation Rules
 
 - TypeScript strict mode.

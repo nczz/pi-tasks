@@ -31,6 +31,7 @@ function createHarness() {
 	};
 	const pi: ReceiverBoundPi = {
 		runtime: { entries },
+		events: { emit: () => {} },
 		on: () => {},
 		registerTool: (tool) => tools.set(tool.name, tool),
 		registerCommand: () => {},

@@ -29,6 +29,9 @@ export interface RegisteredCommand {
 }
 
 export interface ExtensionAPI {
+	events: {
+		emit<T = unknown>(event: string, data: T): void;
+	};
 	on(
 		event: "session_start" | "session_tree",
 		handler: (event: unknown, ctx: ExtensionContext) => Promise<void> | void,
