@@ -16,7 +16,6 @@ Published payloads are structured-cloned so consumer mutation does not alter pi-
 ## Verification Status
 
 - Passed: `npm run release:check`.
-- Passed: source Pi dogfood for task creation, task update, `/tasks`, session resume, fork replay, custom UI state-event subscription, and clean `/quit`.
+- Passed: source Pi dogfood for task creation, task update, `/tasks`, session resume, fork replay, custom UI state-event subscription, large-session manual `/compact`, and clean `/quit`.
 - Passed: clean tarball install, `import("pi-tasks")`, and installed-package Pi state-event smoke.
-- Unit covered: compaction snapshot persistence publishes `pi-tasks:state`.
-- Pending before claiming release-grade compaction dogfood: rerun manual `/compact` in a large enough real Pi session. The 2026-07-22 attempt was skipped by Pi with `Nothing to compact (session too small)`.
+- Passed: compaction snapshot persistence publishes `pi-tasks:state`; live `/compact` compacted from 56,203 tokens and observer logging captured `session_start` plus `task_mutation` events with active task `T1`, stable widget id `pi-tasks`, and no raw `events`.

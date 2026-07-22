@@ -6,7 +6,7 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 Date: 2026-07-22
 
-Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, 0.1.5 receiver-bound append compatibility release gate, and 0.2.0 state-event source/resume/fork/live-TTY/installed-package smoke. 0.2.0 manual `/compact` was attempted but skipped because Pi reported `Nothing to compact`; compaction snapshot event publication is covered by unit tests until a large-session manual compaction dogfood is run.
+Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, 0.1.5 receiver-bound append compatibility release gate, and 0.2.0 state-event source/resume/fork/live-TTY/manual-compaction/installed-package smoke.
 
 Environment:
 
@@ -65,6 +65,9 @@ Environment:
 - 0.2.0 observer event log: `/private/tmp/pi-tasks-state-events-020.jsonl`
 - 0.2.0 installed package smoke directory: `/private/tmp/pi-tasks-release-020-installed`
 - 0.2.0 installed package session ID: `release-020-installed-smoke`
+- 0.2.0 large compaction session directory: `/private/tmp/pi-tasks-release-020-compact/sessions`
+- 0.2.0 large compaction session ID: `release-020-large-compact`
+- 0.2.0 large compaction seed prompt: `/private/tmp/pi-tasks-large-compact-prompt.md`
 
 ## Passed Scenarios
 
@@ -141,6 +144,7 @@ Environment:
 - Confirmed 0.2.0 fork replay restores active task `T1` and publishes a `session_start` state event.
 - Confirmed 0.2.0 live TTY `/tasks` renders active task `T1`; `/quit` exits cleanly.
 - Confirmed 0.2.0 installed tarball supports `import("pi-tasks")` and installed runtime publishes `pi-tasks:state` for `session_start` and `task_mutation`.
+- Confirmed 0.2.0 large-session manual `/compact` compacted from 56,203 tokens and emitted a `task_mutation` state event for active task `T1` without raw `events`.
 
 ## Commands
 
@@ -698,7 +702,35 @@ pi --no-extensions \
   --session-id release-020-source-lifecycle-2
 ```
 
-Observed result: `/tasks` rendered active task `T1`; `/compact` reported `Compaction failed: Nothing to compact (session too small)` and is not counted as passed manual compaction coverage; `/quit` exited cleanly with exit code 0.
+Observed result: `/tasks` rendered active task `T1`; `/compact` on the small source lifecycle session reported `Compaction failed: Nothing to compact (session too small)` and was not counted as manual compaction coverage; `/quit` exited cleanly with exit code 0.
+
+0.2.0 large-session manual `/compact`:
+
+```sh
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-builtin-tools \
+  --tools task_plan,state_event_report \
+  --session-dir /private/tmp/pi-tasks-release-020-compact/sessions \
+  --session-id release-020-large-compact \
+  --name release-020-large-compact \
+  -p "Create a pi-tasks 0.2.0 large compaction dogfood task. Use task_plan to create an active task titled \"0.2.0 large compaction dogfood\" with objective \"Verify manual compact emits state\" and one acceptance criterion \"Manual compact emits pi-tasks state\". Include one atomic plan step with expected output \"Observer log contains task_mutation after compact\" and evidenceRequired false. Then call state_event_report and include its JSON exactly."
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-tools \
+  --session-dir /private/tmp/pi-tasks-release-020-compact/sessions \
+  --session-id release-020-large-compact \
+  -p @/private/tmp/pi-tasks-large-compact-prompt.md
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --session-dir /private/tmp/pi-tasks-release-020-compact/sessions \
+  --session-id release-020-large-compact
+```
+
+Observed result: live `/compact` compacted from 56,203 tokens; observer log recorded `session_start` and `task_mutation` events with stable widget id `pi-tasks`, active task `T1`, and `hasRawEvents: false`; `/quit` exited cleanly with exit code 0.
 
 0.2.0 final installed package smoke:
 
@@ -748,12 +780,12 @@ Also passed on 2026-06-19:
 - 0.1.5 source lifecycle, same-session resume, fork replay, live `/tasks detail`, and clean `/quit`
 - 0.1.5 clean tarball install plus installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
 - 0.2.0 `npm run release:check`
-- 0.2.0 source state-event lifecycle, same-session resume, fork replay, live `/tasks`, and clean `/quit`
+- 0.2.0 source state-event lifecycle, same-session resume, fork replay, live `/tasks`, large-session manual `/compact`, and clean `/quit`
 - 0.2.0 clean tarball install plus installed-package Pi state-event smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 
-No remaining runtime coverage gaps are known for the 0.1.0 release scope. For 0.2.0, large-session manual `/compact` remains to be rerun before claiming release-grade compaction dogfood; the attempted 2026-07-22 run was skipped by Pi because the session was too small.
+No remaining runtime coverage gaps are known for the 0.1.0 or 0.2.0 release scope.
 
 Known runtime note:
 
