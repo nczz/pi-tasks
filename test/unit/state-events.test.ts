@@ -125,6 +125,7 @@ function createHarness(initialEvents: TaskEvent[] = []) {
 			subscribers.push(subscriber),
 		tools,
 		ui,
+		branchEvents,
 	};
 }
 
@@ -229,6 +230,35 @@ describe("task state event hook", () => {
 			reason: "task_mutation",
 			state: { activeTaskId: "T1" },
 		});
+	});
+
+	it("publishes compaction snapshots after persisting them", async () => {
+		const { branchEvents, ctx, emitted, handlers, operations } = createHarness([
+			createEvent,
+		]);
+		await handlers.get("session_start")?.({}, ctx);
+		operations.length = 0;
+		const emissionCount = emitted.length;
+
+		await handlers.get("session_before_compact")?.({}, ctx);
+
+		const snapshotEvent = branchEvents.at(-1);
+		expect(snapshotEvent).toMatchObject({
+			type: "task.snapshot",
+			reason: "compaction",
+			taskId: "T1",
+		});
+		expect(operations).toEqual(["status", "widget", "event"]);
+		expect(emitted).toHaveLength(emissionCount + 1);
+		expect(emitted.at(-1)).toMatchObject({
+			version: 1,
+			reason: "task_mutation",
+			state: {
+				activeTaskId: "T1",
+				lastUpdatedAt: snapshotEvent?.createdAt,
+			},
+		});
+		expect("events" in (emitted.at(-1)?.state ?? {})).toBe(false);
 	});
 
 	it("does not publish rejected mutations", async () => {

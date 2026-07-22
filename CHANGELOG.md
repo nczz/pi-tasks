@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0] - 2026-07-22
+
+### Added
+- Exposed a versioned `pi-tasks:state` event for custom Pi task UI extensions, with stable `TASK_STATE_EVENT` and `TASK_WIDGET_ID` exports.
+- Published cloned task-state snapshots after session replay, session tree navigation, successful task mutations, and compaction snapshot persistence.
+- Added unit coverage for state-event ordering, consumer-owned widget replacement, cloned payload isolation, rejected mutation suppression, observer failure isolation, and compaction snapshot publication.
+
+### Changed
+- Documented the custom task UI integration contract and local-extension data visibility expectations.
+
 ## [0.1.5] - 2026-06-23
 
 ### Fixed

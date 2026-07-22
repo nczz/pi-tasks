@@ -1,4 +1,5 @@
 import { registerTaskCommands } from "./src/commands.ts";
+import type { TaskEvent } from "./src/model.ts";
 import type { ExtensionAPI, ExtensionContext } from "./src/pi-types.ts";
 import { buildTaskResume } from "./src/render.ts";
 import {
@@ -37,11 +38,11 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => replay(ctx, "session_start"));
 	pi.on("session_tree", async (_event, ctx) => replay(ctx, "session_tree"));
-	pi.on("session_before_compact", async (_event, _ctx) => {
+	pi.on("session_before_compact", async (_event, ctx) => {
 		const state = store.getState();
 		if (Object.keys(state.tasks).length > 0) {
 			const createdAt = new Date().toISOString();
-			pi.appendEntry("pi-tasks:event", {
+			const event: TaskEvent = {
 				version: 1,
 				id: `snapshot-${createdAt}`,
 				type: "task.snapshot",
@@ -51,7 +52,11 @@ export default function (pi: ExtensionAPI) {
 				state: snapshotState(state),
 				resume: buildTaskResume(state),
 				reason: "compaction",
+			};
+			const next = store.append(event, (customType, data) => {
+				pi.appendEntry(customType, data);
 			});
+			updateTaskUi(pi, ctx, next, "task_mutation");
 		}
 	});
 

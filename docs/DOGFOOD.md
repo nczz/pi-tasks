@@ -4,9 +4,9 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 ## Current Status
 
-Date: 2026-06-23
+Date: 2026-07-22
 
-Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, and 0.1.5 receiver-bound append compatibility release gate.
+Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, 0.1.5 receiver-bound append compatibility release gate, and 0.2.0 state-event source/resume/fork/live-TTY/installed-package smoke. 0.2.0 manual `/compact` was attempted but skipped because Pi reported `Nothing to compact`; compaction snapshot event publication is covered by unit tests until a large-session manual compaction dogfood is run.
 
 Environment:
 
@@ -58,6 +58,13 @@ Environment:
 - 0.1.5 fork replay session name: `release-015-fork-replay`
 - 0.1.5 final installed package smoke directory: `/private/tmp/pi-tasks-release-015-installed-final2`
 - 0.1.5 final installed package smoke session ID: `release-015-installed-final2-smoke`
+- 0.2.0 release dogfood session directory: `/private/tmp/pi-tasks-release-020-dogfood/sessions`
+- 0.2.0 source lifecycle session ID: `release-020-source-lifecycle-2`
+- 0.2.0 fork replay session ID: `release-020-fork-replay`
+- 0.2.0 observer extension path: `/private/tmp/pi-tasks-state-observer.ts`
+- 0.2.0 observer event log: `/private/tmp/pi-tasks-state-events-020.jsonl`
+- 0.2.0 installed package smoke directory: `/private/tmp/pi-tasks-release-020-installed`
+- 0.2.0 installed package session ID: `release-020-installed-smoke`
 
 ## Passed Scenarios
 
@@ -129,6 +136,11 @@ Environment:
 - Confirmed live TTY `/tasks` default excludes done tasks, while `/tasks detail` renders `T1 [done]`, decision `D1`, evidence `E1`, and criterion `T1-AC1`.
 - Confirmed live TTY `/quit` exits cleanly and prints the Pi resume command.
 - Confirmed 0.1.5 clean tarball install supports `import("pi-tasks")` and installed-package Pi runtime creates task `T1` through `./node_modules/pi-tasks/dist/index.js`.
+- Confirmed 0.2.0 source runtime publishes `pi-tasks:state` on `session_start` and successful task mutations with stable widget id `pi-tasks`, active task `T1`, and no raw `events` field.
+- Confirmed 0.2.0 same-session resume restores active task `T1` and publishes a `session_start` state event.
+- Confirmed 0.2.0 fork replay restores active task `T1` and publishes a `session_start` state event.
+- Confirmed 0.2.0 live TTY `/tasks` renders active task `T1`; `/quit` exits cleanly.
+- Confirmed 0.2.0 installed tarball supports `import("pi-tasks")` and installed runtime publishes `pi-tasks:state` for `session_start` and `task_mutation`.
 
 ## Commands
 
@@ -629,6 +641,87 @@ gtimeout 120s env PI_CODING_AGENT_SESSION_DIR=/private/tmp/pi-tasks-release-015-
 
 Observed result: tarball `pi-tasks-0.1.5.tgz` was created; clean consumer import passed; installed runtime created task `T1` with status `active`.
 
+0.2.0 state-event source dogfood:
+
+```sh
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-builtin-tools \
+  --tools task_plan,task_update,task_list,state_event_report \
+  --session-dir /private/tmp/pi-tasks-release-020-dogfood/sessions \
+  --session-id release-020-source-lifecycle-2 \
+  --name release-020-source-lifecycle-2 \
+  -p "Release dogfood for pi-tasks 0.2.0. Use only the enabled tools. Step 1 call task_plan to create an active task titled \"0.2.0 state hook dogfood\" with objective \"Verify state hook publication\" and one acceptance criterion \"State hook publishes after mutation\". Include one atomic plan step with expected output \"Observed state_event_report output\" and evidenceRequired false. Step 2 call task_update to set progress to 50 and next_action to \"Inspect state hook report\". Step 3 call state_event_report. Step 4 call task_list. In your final answer, include the state_event_report JSON exactly."
+```
+
+Observed result: `state_event_report` returned `count: 3`, reasons `session_start`, `task_mutation`, `task_mutation`, stable widget id `pi-tasks`, active task `T1`, and `lastHasRawEvents: false`.
+
+0.2.0 same-session resume:
+
+```sh
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-builtin-tools \
+  --tools task_list,state_event_report \
+  --session-dir /private/tmp/pi-tasks-release-020-dogfood/sessions \
+  --session-id release-020-source-lifecycle-2 \
+  -p "Resume dogfood for pi-tasks 0.2.0. Use task_list to list the current active task, then call state_event_report. Final answer must include the state_event_report JSON exactly and mention whether T1 replayed."
+```
+
+Observed result: `T1` replayed; `state_event_report` returned `count: 1`, reason `session_start`, stable widget id `pi-tasks`, active task `T1`, and `lastHasRawEvents: false`.
+
+0.2.0 fork replay:
+
+```sh
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-builtin-tools \
+  --tools task_list,state_event_report \
+  --session-dir /private/tmp/pi-tasks-release-020-dogfood/sessions \
+  --fork release-020-source-lifecycle-2 \
+  --session-id release-020-fork-replay \
+  -p "Fork replay dogfood for pi-tasks 0.2.0. Use task_list to list the current active task, then call state_event_report. Final answer must include the state_event_report JSON exactly and mention whether T1 replayed in the fork."
+```
+
+Observed result: `T1` replayed in the fork; `state_event_report` returned `count: 1`, reason `session_start`, stable widget id `pi-tasks`, active task `T1`, and `lastHasRawEvents: false`.
+
+0.2.0 live TTY `/tasks`, `/compact`, and clean exit:
+
+```sh
+pi --no-extensions \
+  --extension ./index.ts \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --session-dir /private/tmp/pi-tasks-release-020-dogfood/sessions \
+  --session-id release-020-source-lifecycle-2
+```
+
+Observed result: `/tasks` rendered active task `T1`; `/compact` reported `Compaction failed: Nothing to compact (session too small)` and is not counted as passed manual compaction coverage; `/quit` exited cleanly with exit code 0.
+
+0.2.0 final installed package smoke:
+
+```sh
+mkdir -p /private/tmp/pi-tasks-release-020-installed/tarball /private/tmp/pi-tasks-release-020-installed/consumer /private/tmp/pi-tasks-release-020-installed/sessions
+npm pack --pack-destination /private/tmp/pi-tasks-release-020-installed/tarball
+cd /private/tmp/pi-tasks-release-020-installed/consumer
+npm init -y
+npm install /private/tmp/pi-tasks-release-020-installed/tarball/pi-tasks-0.2.0.tgz
+node -e "import('pi-tasks')"
+pi --no-extensions \
+  --extension ./node_modules/pi-tasks/dist/index.js \
+  --extension /private/tmp/pi-tasks-state-observer.ts \
+  --no-builtin-tools \
+  --tools task_plan,task_list,state_event_report \
+  --session-dir /private/tmp/pi-tasks-release-020-installed/sessions \
+  --session-id release-020-installed-smoke \
+  --name release-020-installed-smoke \
+  -p "Installed package dogfood for pi-tasks 0.2.0. Use task_plan to create an active task titled \"Installed 0.2.0 state hook smoke\" with one acceptance criterion \"Installed state hook publishes\" and one atomic plan step with expected output \"state_event_report output observed\" and evidenceRequired false. Then call state_event_report and task_list. Final answer must include the state_event_report JSON exactly."
+```
+
+Observed result: tarball `pi-tasks-0.2.0.tgz` was created; clean consumer import passed; installed runtime created task `T1`; `state_event_report` returned `count: 2`, reasons `session_start`, `task_mutation`, stable widget id `pi-tasks`, active task `T1`, and `lastHasRawEvents: false`.
+
 ## Package Gates
 
 Also passed on 2026-06-19:
@@ -654,10 +747,13 @@ Also passed on 2026-06-19:
 - 0.1.3 installed-package weak-model smoke through `./node_modules/pi-tasks/dist/index.js`
 - 0.1.5 source lifecycle, same-session resume, fork replay, live `/tasks detail`, and clean `/quit`
 - 0.1.5 clean tarball install plus installed-package Pi smoke through `./node_modules/pi-tasks/dist/index.js`
+- 0.2.0 `npm run release:check`
+- 0.2.0 source state-event lifecycle, same-session resume, fork replay, live `/tasks`, and clean `/quit`
+- 0.2.0 clean tarball install plus installed-package Pi state-event smoke through `./node_modules/pi-tasks/dist/index.js`
 
 ## Remaining Runtime Coverage
 
-No remaining runtime coverage gaps are known for the 0.1.0 release scope.
+No remaining runtime coverage gaps are known for the 0.1.0 release scope. For 0.2.0, large-session manual `/compact` remains to be rerun before claiming release-grade compaction dogfood; the attempted 2026-07-22 run was skipped by Pi because the session was too small.
 
 Known runtime note:
 
