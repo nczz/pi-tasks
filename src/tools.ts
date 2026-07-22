@@ -751,7 +751,7 @@ function appendAndReport(
 		const state = store.append(event, (customType, data) => {
 			pi.appendEntry(customType, data);
 		});
-		updateTaskUi(ctx, state);
+		updateTaskUi(pi, ctx, state, "task_mutation");
 		const warning =
 			event.type === "task.completed" && event.forceWithReason
 				? `\nWarning: forced completion: ${event.forceWithReason}`
