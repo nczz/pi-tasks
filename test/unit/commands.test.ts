@@ -59,7 +59,6 @@ describe("/tasks command", () => {
 		]);
 		let notification = "";
 		const ctx: ExtensionContext = {
-			mode: "tui",
 			sessionManager: { getBranch: () => [] },
 			ui: {
 				notify: (message) => {
@@ -96,7 +95,6 @@ describe("/tasks command", () => {
 		]);
 		let notification = "";
 		const ctx: ExtensionContext = {
-			mode: "tui",
 			sessionManager: { getBranch: () => [] },
 			ui: {
 				notify: (message) => {

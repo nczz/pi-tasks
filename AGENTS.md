@@ -27,6 +27,10 @@ This project must align with the commercial-quality bar established by `pi-knowl
   - `ctx.ui.setStatus`
   - lifecycle events such as `session_start`, `session_tree`, `turn_end`, and `session_shutdown`
 - MCP or Markdown export can be added later, but should not replace the Pi-native core.
+- Preserve Oh My Pi compatibility when using Pi-native APIs:
+  - keep package manifests readable through `pi.extensions`;
+  - avoid relying on `ctx.mode`; use API capability checks such as `ctx.hasUI` only when needed;
+  - mirror critical `promptGuidelines` into tool `description` text because Oh My Pi consumes `description`/`parameters` for model-facing tool guidance.
 
 ## Task State Event Contract
 
@@ -44,7 +48,7 @@ This project must align with the commercial-quality bar established by `pi-knowl
 - No `any` unless the boundary truly requires it and the rationale is documented.
 - Keep startup light. Avoid loading optional UI-heavy modules at extension import time unless Pi requires them.
 - Prefer deterministic local state transitions over prompt-only behavior.
-- All agent-facing tools must have clear `promptSnippet` and `promptGuidelines`.
+- All agent-facing tools must have clear `promptSnippet` and `promptGuidelines`, and their critical guidance must also be reflected in `description` for hosts that ignore custom prompt fields.
 - Long-running operations must support cancellation where applicable.
 - TUI custom renderers and widgets must be width-safe and tested in real Pi TUI sessions.
 

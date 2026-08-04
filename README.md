@@ -40,10 +40,23 @@ Different tools solve different parts of the agentic workflow. Pick based on wha
 pi install npm:pi-tasks
 ```
 
+For Oh My Pi (`omp`):
+
+```sh
+omp install pi-tasks
+```
+
+Project-scoped Oh My Pi install:
+
+```sh
+omp plugin install --scope project pi-tasks
+```
+
 For local development:
 
 ```sh
 pi install ./
+omp install ./
 ```
 
 ## How it works
@@ -61,6 +74,29 @@ task_complete → only succeeds when all gates pass
 ```
 
 The agent gets 12 tools. The user gets `/tasks`. Everything persists in Pi's session tree.
+
+### Oh My Pi support
+
+Oh My Pi discovers extension packages through the same manifest shape:
+
+```json
+{
+  "pi": {
+    "extensions": ["./dist/index.js"]
+  }
+}
+```
+
+No separate `omp` manifest is required. `pi-tasks` uses the Pi-native APIs that
+Oh My Pi exposes: `registerTool`, `registerCommand`, `appendEntry`,
+`ctx.sessionManager.getBranch()`, `ctx.ui.setStatus`, `ctx.ui.setWidget`, and
+the `session_start`, `session_tree`, and `session_before_compact` lifecycle
+events.
+
+Because Oh My Pi renders model-facing tool guidance from `description` and
+`parameters`, every pi-tasks tool mirrors its critical `promptGuidelines` into
+the registered tool description while still keeping `promptSnippet` and
+`promptGuidelines` for Pi hosts that read those fields directly.
 
 ## Agent Tools
 
@@ -200,6 +236,7 @@ blockers, and evidence references; custom UI extensions should keep them local.
 - Session replay from `ctx.sessionManager.getBranch()` on `session_start` and `session_tree`
 - Compaction snapshot hook via `session_before_compact`
 - Compact status bar and above-editor widget
+- Oh My Pi-compatible extension manifest and tool descriptions that preserve critical guidance on hosts that ignore custom `promptSnippet`/`promptGuidelines` fields
 
 ### Verification
 

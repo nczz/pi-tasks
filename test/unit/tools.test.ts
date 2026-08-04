@@ -41,7 +41,6 @@ function createHarness() {
 		},
 	};
 	const ctx: ExtensionContext = {
-		mode: "tui",
 		sessionManager: {
 			getBranch: () =>
 				entries.map((entry, index) => ({
@@ -84,6 +83,19 @@ function requireTool(
 }
 
 describe("registered task tools", () => {
+	it("projects prompt guidelines into tool descriptions for hosts that ignore custom fields", () => {
+		const { tools } = createHarness();
+		const plan = requireTool(tools, "task_plan");
+
+		expect(plan.promptGuidelines).toContain(
+			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
+		);
+		expect(plan.description).toContain("Agent guidance:");
+		expect(plan.description).toContain(
+			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
+		);
+	});
+
 	it("preserves ExtensionAPI method receivers when appending task events", async () => {
 		const { tools, ctx, store } = createHarness();
 		const plan = requireTool(tools, "task_plan");

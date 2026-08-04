@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2] - 2026-08-04
+
+### Added
+- Documented Oh My Pi (`omp`) installation and compatibility details, including npm, project-scoped, and local development install paths.
+
+### Changed
+- Mirrored tool `promptGuidelines` into registered tool descriptions so Oh My Pi hosts that consume `description`/`parameters` still receive critical task-contract guidance.
+- Removed the local `ctx.mode` compatibility shim from pi-tasks context types and event creation.
+
 ## [0.2.1] - 2026-08-04
 
 ### Fixed

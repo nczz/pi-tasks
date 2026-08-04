@@ -48,7 +48,6 @@ export interface ExtensionAPI {
 }
 
 export interface ExtensionContext {
-	mode: "tui" | "rpc" | "print" | string;
 	sessionManager: {
 		getBranch(): BranchEntry[];
 	};

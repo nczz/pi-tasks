@@ -94,7 +94,6 @@ function createHarness(initialEvents: TaskEvent[] = []) {
 		},
 	};
 	const ctx: ExtensionContext = {
-		mode: "tui",
 		sessionManager: {
 			getBranch: () =>
 				branchEvents.map((event, index) => ({

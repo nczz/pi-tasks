@@ -14,7 +14,12 @@ import type {
 	TaskStepStatus,
 	VerificationLevel,
 } from "./model.ts";
-import type { ExtensionAPI, ExtensionContext, ToolResult } from "./pi-types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+	ToolResult,
+} from "./pi-types.ts";
 import {
 	buildTaskResume,
 	formatTaskFocus,
@@ -155,12 +160,41 @@ interface TaskDecomposeParams extends Record<string, unknown> {
 	child_steps: TaskStepInput[];
 }
 
+type GuidedTaskToolDefinition<TParams extends Record<string, unknown>> =
+	ToolDefinition<TParams> & {
+		promptSnippet: string;
+		promptGuidelines: string[];
+	};
+
+function registerGuidedTool<TParams extends Record<string, unknown>>(
+	pi: ExtensionAPI,
+	tool: GuidedTaskToolDefinition<TParams>,
+): void {
+	pi.registerTool({
+		...tool,
+		description: formatToolDescription(tool.description, tool.promptGuidelines),
+	});
+}
+
+function formatToolDescription(
+	description: string,
+	guidelines: readonly string[],
+): string {
+	if (guidelines.length === 0) return description;
+	return [
+		description,
+		"",
+		"Agent guidance:",
+		...guidelines.map((guideline) => `- ${guideline}`),
+	].join("\n");
+}
+
 export function registerTaskTools(
 	pi: ExtensionAPI,
 	store: TaskRuntimeStore,
 	idGenerator = new SequentialIdGenerator(),
 ): void {
-	pi.registerTool<TaskPlanParams>({
+	registerGuidedTool<TaskPlanParams>(pi, {
 		name: "task_plan",
 		label: "Task Plan",
 		description:
@@ -233,7 +267,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<Record<string, never>>({
+	registerGuidedTool<Record<string, never>>(pi, {
 		name: "task_next",
 		label: "Task Next",
 		description:
@@ -253,7 +287,7 @@ export function registerTaskTools(
 			),
 	});
 
-	pi.registerTool<Record<string, never>>({
+	registerGuidedTool<Record<string, never>>(pi, {
 		name: "task_focus",
 		label: "Task Focus",
 		description:
@@ -274,7 +308,7 @@ export function registerTaskTools(
 			),
 	});
 
-	pi.registerTool<Record<string, never>>({
+	registerGuidedTool<Record<string, never>>(pi, {
 		name: "task_resume",
 		label: "Task Resume",
 		description:
@@ -294,7 +328,7 @@ export function registerTaskTools(
 			),
 	});
 
-	pi.registerTool<TaskCheckpointParams>({
+	registerGuidedTool<TaskCheckpointParams>(pi, {
 		name: "task_checkpoint",
 		label: "Task Checkpoint",
 		description:
@@ -336,7 +370,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskGranularityCheckParams>({
+	registerGuidedTool<TaskGranularityCheckParams>(pi, {
 		name: "task_granularity_check",
 		label: "Task Granularity Check",
 		description:
@@ -388,7 +422,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskDecomposeParams>({
+	registerGuidedTool<TaskDecomposeParams>(pi, {
 		name: "task_decompose",
 		label: "Task Decompose",
 		description:
@@ -441,7 +475,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskListParams>({
+	registerGuidedTool<TaskListParams>(pi, {
 		name: "task_list",
 		label: "Task List",
 		description: "List pi-tasks tasks on the current session branch.",
@@ -469,7 +503,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskUpdateParams>({
+	registerGuidedTool<TaskUpdateParams>(pi, {
 		name: "task_update",
 		label: "Task Update",
 		description:
@@ -557,7 +591,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskEvidenceParams>({
+	registerGuidedTool<TaskEvidenceParams>(pi, {
 		name: "task_evidence",
 		label: "Task Evidence",
 		description:
@@ -626,7 +660,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskDecisionParams>({
+	registerGuidedTool<TaskDecisionParams>(pi, {
 		name: "task_decision",
 		label: "Task Decision",
 		description:
@@ -668,7 +702,7 @@ export function registerTaskTools(
 		},
 	});
 
-	pi.registerTool<TaskCompleteParams>({
+	registerGuidedTool<TaskCompleteParams>(pi, {
 		name: "task_complete",
 		label: "Task Complete",
 		description:
@@ -822,7 +856,7 @@ function selectStep(
 function baseEvent<TType extends TaskEvent["type"]>(
 	type: TType,
 	taskId: string,
-	ctx: ExtensionContext,
+	_ctx: ExtensionContext,
 	payload: Omit<
 		Extract<TaskEvent, { type: TType }>,
 		"version" | "id" | "type" | "taskId" | "createdAt" | "source"
@@ -835,7 +869,7 @@ function baseEvent<TType extends TaskEvent["type"]>(
 		type,
 		taskId,
 		createdAt,
-		source: ctx.mode === "tui" ? "tool" : "tool",
+		source: "tool",
 		...payload,
 	} as Extract<TaskEvent, { type: TType }>;
 }
