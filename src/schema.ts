@@ -37,6 +37,9 @@ export const Type = {
 		values: readonly string[],
 		options: Record<string, unknown> = {},
 	): Schema {
-		return { enum: values, ...options };
+		// Explicit type is required for Moonshot/Kimi ("moonshot flavored json
+		// schema"). Bare `{ enum: [...] }` is draft-07-valid but rejected at
+		// path e.g. plan_steps.items.properties.decompositionStatus.
+		return { type: "string", enum: values, ...options };
 	},
 };
