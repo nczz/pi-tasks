@@ -1,9 +1,14 @@
 # Changelog
 
+## [0.2.3] - 2026-08-04
+
+### Fixed
+- Corrected Oh My Pi (`omp`) install documentation to remove the unsupported project-scoped npm package example and list verified npm/local plugin commands.
+
 ## [0.2.2] - 2026-08-04
 
 ### Added
-- Documented Oh My Pi (`omp`) installation and compatibility details, including npm, project-scoped, and local development install paths.
+- Documented verified Oh My Pi (`omp`) npm-package and local-development installation paths, plus compatibility details.
 
 ### Changed
 - Mirrored tool `promptGuidelines` into registered tool descriptions so Oh My Pi hosts that consume `description`/`parameters` still receive critical task-contract guidance.

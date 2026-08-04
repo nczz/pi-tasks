@@ -46,17 +46,20 @@ For Oh My Pi (`omp`):
 omp install pi-tasks
 ```
 
-Project-scoped Oh My Pi install:
+Equivalent explicit plugin command:
 
 ```sh
-omp plugin install --scope project pi-tasks
+omp plugin install pi-tasks
 ```
+
+Oh My Pi's `--scope project` flag is for marketplace refs such as
+`name@marketplace`; it is ignored for npm package specs like `pi-tasks`.
 
 For local development:
 
 ```sh
 pi install ./
-omp install ./
+omp plugin install ./
 ```
 
 ## How it works
