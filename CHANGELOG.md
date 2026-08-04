@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-08-04
+
+### Fixed
+- Emitted explicit `type: "string"` for `Type.Enum()` schemas so Moonshot/Kimi-compatible tool schema validators accept pi-tasks enum parameters.
+
+### Added
+- Added regression coverage for enum schema typing and option preservation.
+
+### Security
+- Refreshed the lockfile to use the patched transitive PostCSS version required for `npm audit --audit-level=low` to pass.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added
