@@ -2,6 +2,7 @@ import { createEventId, SequentialIdGenerator } from "./ids.ts";
 import {
 	type AcceptanceCriterion,
 	type EvidenceQuality,
+	type EvidenceSemanticAssessment,
 	type EvidenceType,
 	isAtMaximumDecompositionDepth,
 	MAX_EVIDENCE_OBSERVED_OUTPUT_LENGTH,
@@ -21,10 +22,11 @@ import {
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	ModelUsage,
 	ToolDefinition,
 	ToolResult,
 } from "./pi-types.ts";
-import { TaskTransitionError } from "./reducer.ts";
+import { reduceTaskState, TaskTransitionError } from "./reducer.ts";
 import {
 	buildTaskResume,
 	formatTaskFocus,
@@ -33,6 +35,12 @@ import {
 	formatTaskResume,
 } from "./render.ts";
 import { Type } from "./schema.ts";
+import {
+	assessEvidenceSemantics,
+	assessPlanSemantics,
+	type EvidenceAssessmentInput,
+	SemanticAssessmentError,
+} from "./semantic-assessment.ts";
 import { errorText, snapshotState, type TaskRuntimeStore } from "./store.ts";
 import { updateTaskUi } from "./widget.ts";
 
@@ -67,19 +75,21 @@ const VERIFICATION_LEVELS = [
 	"pi_dogfood",
 	"external_unverified",
 ] as const;
-const GRANULARITY_STATUSES = [
-	"needs_breakdown",
-	"breaking_down",
-	"atomic",
-	"deferred",
-] as const;
+
+interface SemanticTaskStepInput {
+	text: string;
+	expectedOutput: string;
+	criterionIds?: string[];
+	evidenceRequired?: boolean;
+	allowedActions?: string[];
+}
 
 interface TaskPlanParams extends Record<string, unknown> {
 	title: string;
 	objective: string;
 	acceptance_criteria: string[];
 	initial_steps?: string[];
-	plan_steps?: TaskStepInput[];
+	plan_steps?: SemanticTaskStepInput[];
 	priority?: TaskPriority;
 	tags?: string[];
 	activate?: boolean;
@@ -163,7 +173,7 @@ interface TaskDecomposeParams extends Record<string, unknown> {
 	task_id: string;
 	step_id: string;
 	reason: string;
-	child_steps: TaskStepInput[];
+	child_steps: SemanticTaskStepInput[];
 }
 
 type GuidedTaskToolDefinition<TParams extends Record<string, unknown>> =
@@ -316,7 +326,7 @@ export function registerTaskTools(
 			"Use task_plan for multi-step work before implementation when no suitable active task exists.",
 			"Constrain the plan to the user's stated objective; do not add speculative scope, gates, or abstractions.",
 			"Use concrete acceptance criteria; omit unknown generated criterion IDs or pass an empty criterionIds array during new task creation to auto-link all task criteria.",
-			"Mark a plan step atomic only when its granularityCheck proves it has one action, one observable output, one verification method, and no hidden subtasks.",
+			"Plan and decomposition steps are semantically assessed by the configured native host model; provide concrete text and expectedOutput, but do not self-score granularity.",
 			"Activate only one task unless the user explicitly asks for parallel work.",
 		],
 		parameters: Type.Object({
@@ -343,8 +353,6 @@ export function registerTaskTools(
 						),
 						evidenceRequired: Type.Optional(Type.Boolean()),
 						allowedActions: Type.Optional(Type.Array(Type.String())),
-						decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
-						granularityCheck: Type.Optional(granularityCheckSchema()),
 					}),
 				),
 			),
@@ -354,26 +362,55 @@ export function registerTaskTools(
 				Type.Boolean({ description: "Make this the active task" }),
 			),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-			const taskId = nextTaskId(store.getState());
-			const event = baseEvent("task.created", taskId, ctx, {
-				title: params.title,
-				objective: params.objective,
-				acceptanceCriteria: params.acceptance_criteria,
-				activate: params.activate ?? true,
-				...(params.plan_steps ? { planSteps: params.plan_steps } : {}),
-				...(params.initial_steps ? { initialSteps: params.initial_steps } : {}),
-				...(params.priority ? { priority: params.priority } : {}),
-				...(params.tags ? { tags: params.tags } : {}),
-			});
-			return appendAndReport(
-				pi,
-				store,
-				ctx,
-				event,
-				`Created task ${taskId}: ${params.title}`,
-				() => activateTaskTools(pi),
-			);
+		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+			const planSteps = planStepInputs(params.plan_steps, params.initial_steps);
+			if (planSteps.length === 0) {
+				return {
+					...textResult(
+						"Error: at least one ordered plan step is required",
+						buildTaskResume(store.getState()),
+					),
+					isError: true,
+				};
+			}
+			try {
+				const run = await assessPlanSemantics(
+					ctx,
+					{
+						title: params.title,
+						objective: params.objective,
+						acceptanceCriteria: params.acceptance_criteria,
+						steps: planSteps,
+					},
+					signal,
+				);
+				const taskId = nextTaskId(store.getState());
+				const event = baseEvent("task.created", taskId, ctx, {
+					title: params.title,
+					objective: params.objective,
+					acceptanceCriteria: params.acceptance_criteria,
+					activate: params.activate ?? true,
+					planSteps,
+					semanticAssessment: run.assessment,
+					...(params.priority ? { priority: params.priority } : {}),
+					...(params.tags ? { tags: params.tags } : {}),
+				});
+				return appendAndReport(
+					pi,
+					store,
+					ctx,
+					event,
+					`Created task ${taskId}: ${params.title}`,
+					() => activateTaskTools(pi),
+					run.usage,
+				);
+			} catch (error) {
+				return semanticAssessmentFailureResult(
+					error,
+					store.getState(),
+					"task_plan",
+				);
+			}
 		},
 	});
 
@@ -558,10 +595,10 @@ export function registerTaskTools(
 		promptGuidelines: [
 			"Use task_decompose when task_focus or task_granularity_check says the current step needs breakdown.",
 			"Smart models: preserve the parent objective and criteria; do not add unsolicited features or release gates.",
-			"Weak models: make each child one verb, one output, one evidence method, and copy criterionIds only from task_focus/task_resume.",
-			"Each child step must include expectedOutput, evidenceRequired, allowedActions, and granularityCheck.",
+			"Make each child describe one intended operation with one observable output; copy criterionIds only from task_focus/task_resume.",
+			"Each child step must include text and expectedOutput. evidenceRequired and allowedActions remain optional.",
 			"Omit child step criterionIds or pass an empty array unless you are carrying forward known generated IDs from task_focus or task_resume; either form auto-links the parent criteria.",
-			"Only mark a child atomic when it truly has one action, one output, one verification method, and no hidden subtasks.",
+			"The configured native host model assesses child specificity, atomicity, outputs, verification methods, and hidden subtasks.",
 			"Do not use task_decompose for execution evidence; record execution evidence with task_evidence.",
 			"At maximum decomposition depth, do not retry task_decompose; explicitly block the task and carry remaining scope into a flat successor task.",
 		],
@@ -583,24 +620,86 @@ export function registerTaskTools(
 					),
 					evidenceRequired: Type.Optional(Type.Boolean()),
 					allowedActions: Type.Optional(Type.Array(Type.String())),
-					decompositionStatus: Type.Optional(Type.Enum(GRANULARITY_STATUSES)),
-					granularityCheck: Type.Optional(granularityCheckSchema()),
 				}),
 			),
 		}),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-			const event = baseEvent("task.steps_decomposed", params.task_id, ctx, {
-				parentStepId: params.step_id,
-				childSteps: params.child_steps,
-				reason: params.reason,
-			});
-			return appendAndReport(
-				pi,
-				store,
-				ctx,
-				event,
-				`Decomposed step ${params.step_id} for task ${params.task_id}`,
+		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
+			if (params.child_steps.length < 2) {
+				return {
+					...textResult(
+						"Error: decomposition requires at least two child steps",
+						buildTaskResume(store.getState()),
+					),
+					isError: true,
+				};
+			}
+			const beforeTask = store.getState().tasks[params.task_id];
+			const beforeStep = beforeTask?.planSteps.find(
+				(step) => step.id === params.step_id,
 			);
+			if (!beforeTask || !beforeStep) {
+				return {
+					...textResult(
+						`Error: plan step ${params.step_id} not found`,
+						buildTaskResume(store.getState()),
+					),
+					isError: true,
+				};
+			}
+			const beforeFingerprint = stepAssessmentFingerprint(beforeStep);
+			try {
+				const run = await assessPlanSemantics(
+					ctx,
+					{
+						title: beforeTask.title,
+						objective: beforeTask.objective,
+						acceptanceCriteria: beforeTask.acceptanceCriteria.map(
+							(criterion) => criterion.text,
+						),
+						steps: params.child_steps,
+					},
+					signal,
+				);
+				const currentStep = store
+					.getState()
+					.tasks[params.task_id]?.planSteps.find(
+						(step) => step.id === params.step_id,
+					);
+				if (
+					!currentStep ||
+					stepAssessmentFingerprint(currentStep) !== beforeFingerprint
+				) {
+					return {
+						...textResult(
+							`Error: plan step ${params.step_id} changed while semantic assessment was running; retry task_decompose with current state`,
+							buildTaskResume(store.getState()),
+						),
+						isError: true,
+						...(run.usage ? { usage: run.usage } : {}),
+					};
+				}
+				const event = baseEvent("task.steps_decomposed", params.task_id, ctx, {
+					parentStepId: params.step_id,
+					childSteps: params.child_steps,
+					reason: params.reason,
+					semanticAssessment: run.assessment,
+				});
+				return appendAndReport(
+					pi,
+					store,
+					ctx,
+					event,
+					`Decomposed step ${params.step_id} for task ${params.task_id}`,
+					undefined,
+					run.usage,
+				);
+			} catch (error) {
+				return semanticAssessmentFailureResult(
+					error,
+					store.getState(),
+					"task_decompose",
+				);
+			}
 		},
 	});
 
@@ -755,7 +854,7 @@ export function registerTaskTools(
 			"Always provide references plus quality.source, quality.reproducible, quality.verifier, quality.command, quality.artifactRefs, and quality.observedOutput; for non-command evidence, quality.command should name the verification action.",
 		],
 		parameters: taskEvidenceParametersSchema(),
-		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+		execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
 			const duplicate = findDuplicateEvidenceForParams(
 				store.getState().tasks[params.task_id],
 				params,
@@ -769,28 +868,86 @@ export function registerTaskTools(
 					buildTaskResume(store.getState()),
 				);
 			}
-			const evidenceId = idGenerator.next("E");
-			const event = baseEvent("task.evidence_added", params.task_id, ctx, {
-				evidence: {
-					id: evidenceId,
-					type: params.type,
-					level: params.level,
-					summary: params.summary,
-					passed: parsePassed(params.passed),
-					references: params.references ?? [],
-					...(params.quality ? { quality: params.quality } : {}),
-					...(params.supersedes ? { supersedes: params.supersedes } : {}),
-				},
-				...(params.criterion_ids ? { criterionIds: params.criterion_ids } : {}),
-				...(params.step_ids ? { stepIds: params.step_ids } : {}),
-				...(params.override_reason
-					? { overrideReason: params.override_reason }
-					: {}),
-			});
-			const success = duplicate
-				? `Linked existing evidence ${duplicate.id} for task ${params.task_id}`
-				: `Recorded evidence ${evidenceId} for task ${params.task_id}`;
-			return appendAndReport(pi, store, ctx, event, success);
+			const parsedPassed = parsePassed(params.passed);
+			const draftEvent = evidenceEvent(params, "semantic-preflight", ctx);
+			if (parsedPassed !== true) {
+				try {
+					reduceTaskState(store.getState(), draftEvent);
+				} catch (error) {
+					return rejectedMutationResult(error, store.getState(), draftEvent);
+				}
+				const evidenceId = idGenerator.next("E");
+				return appendAndReport(
+					pi,
+					store,
+					ctx,
+					evidenceEvent(params, evidenceId, ctx),
+					duplicate
+						? `Linked existing evidence ${duplicate.id} for task ${params.task_id}`
+						: `Recorded evidence ${evidenceId} for task ${params.task_id}`,
+				);
+			}
+			try {
+				reduceTaskState(store.getState(), { ...draftEvent, version: 1 });
+			} catch (error) {
+				return rejectedMutationResult(error, store.getState(), draftEvent);
+			}
+			try {
+				const input = evidenceAssessmentInput(params);
+				const run = await assessEvidenceSemantics(ctx, input, signal);
+				const currentDuplicate = findDuplicateEvidenceForParams(
+					store.getState().tasks[params.task_id],
+					params,
+				);
+				if (
+					currentDuplicate &&
+					criteriaAlreadyLinked(store.getState(), params, currentDuplicate)
+				) {
+					return {
+						...textResult(
+							`Evidence already recorded as ${currentDuplicate.id} for task ${params.task_id}\n\n${formatTaskResume(store.getState())}`,
+							buildTaskResume(store.getState()),
+						),
+						...(run.usage ? { usage: run.usage } : {}),
+					};
+				}
+				const assessedDraftEvent = evidenceEvent(
+					params,
+					"semantic-preflight",
+					ctx,
+					run.assessment,
+				);
+				try {
+					reduceTaskState(store.getState(), assessedDraftEvent);
+				} catch (error) {
+					return rejectedMutationResult(
+						error,
+						store.getState(),
+						assessedDraftEvent,
+						run.usage,
+					);
+				}
+				const evidenceId = idGenerator.next("E");
+				const event = evidenceEvent(params, evidenceId, ctx, run.assessment);
+				const success = currentDuplicate
+					? `Linked existing evidence ${currentDuplicate.id} for task ${params.task_id}`
+					: `Recorded evidence ${evidenceId} for task ${params.task_id}`;
+				return appendAndReport(
+					pi,
+					store,
+					ctx,
+					event,
+					success,
+					undefined,
+					run.usage,
+				);
+			} catch (error) {
+				return semanticAssessmentFailureResult(
+					error,
+					store.getState(),
+					"task_evidence",
+				);
+			}
 		},
 	});
 
@@ -890,17 +1047,6 @@ export function registerTaskTools(
 	});
 }
 
-function granularityCheckSchema() {
-	return Type.Object({
-		isAtomic: Type.Boolean(),
-		reason: Type.String(),
-		canBeDoneInOneAgentAction: Type.Boolean(),
-		hasSingleObservableOutput: Type.Boolean(),
-		hasSingleVerificationMethod: Type.Boolean(),
-		hasNoHiddenSubtasks: Type.Boolean(),
-	});
-}
-
 function taskEvidenceParametersSchema() {
 	return Type.Object({
 		task_id: Type.String(),
@@ -962,6 +1108,159 @@ function evidenceQualitySchema() {
 	});
 }
 
+function planStepInputs(
+	planSteps: SemanticTaskStepInput[] | undefined,
+	initialSteps: string[] | undefined,
+): TaskStepInput[] {
+	if (planSteps) {
+		return planSteps.map((step) => ({
+			text: step.text,
+			expectedOutput: step.expectedOutput,
+			...(step.criterionIds ? { criterionIds: step.criterionIds } : {}),
+			...(step.evidenceRequired !== undefined
+				? { evidenceRequired: step.evidenceRequired }
+				: {}),
+			...(step.allowedActions ? { allowedActions: step.allowedActions } : {}),
+		}));
+	}
+	return (initialSteps ?? []).map((text) => ({
+		text,
+		expectedOutput: `Verified output for: ${text}`,
+		evidenceRequired: true,
+		allowedActions: [],
+	}));
+}
+
+function evidenceAssessmentInput(
+	params: TaskEvidenceParams,
+): EvidenceAssessmentInput {
+	return {
+		type: params.type,
+		level: params.level,
+		summary: params.summary,
+		references: params.references,
+		quality: params.quality,
+	};
+}
+
+function evidenceEvent(
+	params: TaskEvidenceParams,
+	evidenceId: string,
+	ctx: ExtensionContext,
+	semanticAssessment?: EvidenceSemanticAssessment,
+): Extract<TaskEvent, { type: "task.evidence_added" }> {
+	return baseEvent("task.evidence_added", params.task_id, ctx, {
+		evidence: {
+			id: evidenceId,
+			type: params.type,
+			level: params.level,
+			summary: params.summary,
+			passed: parsePassed(params.passed),
+			references: params.references,
+			quality: params.quality,
+			...(params.supersedes ? { supersedes: params.supersedes } : {}),
+		},
+		...(semanticAssessment ? { semanticAssessment } : {}),
+		...(params.criterion_ids ? { criterionIds: params.criterion_ids } : {}),
+		...(params.step_ids ? { stepIds: params.step_ids } : {}),
+		...(params.override_reason
+			? { overrideReason: params.override_reason }
+			: {}),
+	});
+}
+
+function stepAssessmentFingerprint(step: Task["planSteps"][number]): string {
+	return JSON.stringify({
+		id: step.id,
+		text: step.text,
+		expectedOutput: step.expectedOutput,
+		status: step.status,
+		decompositionStatus: step.decompositionStatus,
+		depth: step.depth,
+		childStepIds: step.childStepIds,
+		criterionIds: step.criterionIds,
+	});
+}
+
+function semanticAssessmentFailureResult(
+	error: unknown,
+	state: TaskState,
+	retryWith: "task_plan" | "task_decompose" | "task_evidence",
+): ToolResult {
+	const assessmentError =
+		error instanceof SemanticAssessmentError ? error : undefined;
+	const reason = assessmentError?.message ?? errorText(error);
+	const resume = buildTaskResume(state);
+	const details = {
+		rejected: true,
+		reason,
+		retry_with: retryWith,
+		do_not_retry_same_call: assessmentError?.code !== "aborted",
+		native_model_required: true,
+		resume,
+	};
+	return {
+		...textResult(
+			[
+				`Error: ${reason}`,
+				"",
+				"Semantic assessment recovery:",
+				`- retry_with: ${retryWith}`,
+				`- native_model_required: true`,
+				`- do_not_retry_same_call: ${details.do_not_retry_same_call}`,
+				"- no_regex_fallback: true",
+				"",
+				"Configure or restore a native Pi/Oh My Pi model capability, then retry the rejected mutation.",
+			].join("\n"),
+			details,
+		),
+		isError: true,
+		...(assessmentError?.usage ? { usage: assessmentError.usage } : {}),
+	};
+}
+
+function rejectedMutationResult(
+	error: unknown,
+	state: TaskState,
+	event: TaskEvent,
+	usage?: ModelUsage,
+): ToolResult {
+	const resumeText = formatTaskResume(state);
+	const recovery = buildRejectionRecovery(error, state, event);
+	return {
+		...textResult(
+			[
+				`Error: ${errorText(error)}`,
+				"",
+				"Recovery:",
+				`- retry_with: ${recovery.retry_with}`,
+				`- minimum_params: ${JSON.stringify(recovery.minimum_params)}`,
+				`- do_not_retry_same_call: ${recovery.do_not_retry_same_call}`,
+				`- reason: ${recovery.reason}`,
+				...(recovery.retry_example
+					? [
+							"",
+							"task_evidence retry template (replace angle-bracket placeholders with observed values):",
+							"```json",
+							JSON.stringify(recovery.retry_example, null, 2),
+							"```",
+						]
+					: []),
+				"",
+				...(!recovery.correct_rejected_call_first &&
+				recovery.retry_with === recovery.resume.recommendedTool
+					? ["Recovery guidance:", resumeText]
+					: [
+							"Recovery guidance: correct the rejected call above, then call task_resume for the next task action.",
+						]),
+			].join("\n"),
+			recovery,
+		),
+		isError: true,
+		...(usage ? { usage } : {}),
+	};
+}
+
 function appendAndReport(
 	pi: ExtensionAPI,
 	store: TaskRuntimeStore,
@@ -969,6 +1268,7 @@ function appendAndReport(
 	event: TaskEvent,
 	success: string,
 	onPersisted?: () => void,
+	usage?: ModelUsage,
 ): ToolResult {
 	try {
 		const state = store.append(event, (customType, data) => {
@@ -980,44 +1280,15 @@ function appendAndReport(
 			event.type === "task.completed" && event.forceWithReason
 				? `\nWarning: forced completion: ${event.forceWithReason}`
 				: "";
-		return textResult(
-			`${success}${warning}\n\n${formatTaskResume(state)}`,
-			buildTaskResume(state),
-		);
-	} catch (error) {
-		const resume = formatTaskResume(store.getState());
-		const recovery = buildRejectionRecovery(error, store.getState(), event);
 		return {
 			...textResult(
-				[
-					`Error: ${errorText(error)}`,
-					"",
-					"Recovery:",
-					`- retry_with: ${recovery.retry_with}`,
-					`- minimum_params: ${JSON.stringify(recovery.minimum_params)}`,
-					`- do_not_retry_same_call: ${recovery.do_not_retry_same_call}`,
-					`- reason: ${recovery.reason}`,
-					...(recovery.retry_example
-						? [
-								"",
-								"task_evidence retry template (replace angle-bracket placeholders with observed values):",
-								"```json",
-								JSON.stringify(recovery.retry_example, null, 2),
-								"```",
-							]
-						: []),
-					"",
-					...(!recovery.correct_rejected_call_first &&
-					recovery.retry_with === recovery.resume.recommendedTool
-						? ["Recovery guidance:", resume]
-						: [
-								"Recovery guidance: correct the rejected call above, then call task_resume for the next task action.",
-							]),
-				].join("\n"),
-				recovery,
+				`${success}${warning}\n\n${formatTaskResume(state)}`,
+				buildTaskResume(state),
 			),
-			isError: true,
+			...(usage ? { usage } : {}),
 		};
+	} catch (error) {
+		return rejectedMutationResult(error, store.getState(), event, usage);
 	}
 }
 
@@ -1214,7 +1485,7 @@ function baseEvent<TType extends TaskEvent["type"]>(
 ): Extract<TaskEvent, { type: TType }> {
 	const createdAt = new Date().toISOString();
 	return {
-		version: 1,
+		version: 2,
 		id: createEventId(taskId, createdAt, type),
 		type,
 		taskId,

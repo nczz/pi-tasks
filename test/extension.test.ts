@@ -126,51 +126,28 @@ async function waitForPersistedTaskEvent(
 	}
 }
 
-function appendNativeToolCall(sessionManager: {
-	appendMessage(message: unknown): string;
-}): void {
-	sessionManager.appendMessage({
-		role: "assistant",
-		content: [
-			{
-				type: "toolCall",
-				id: "native-plan-call",
-				name: "task_plan",
-				arguments: validPlan(),
-			},
-		],
-		api: "native-test",
-		provider: "native-test",
-		model: "native-test",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason: "toolUse",
-		timestamp: Date.now(),
-	});
-}
-
-function validPlan() {
+function legacyCreatedEvent() {
 	return {
+		version: 1,
+		id: "native-task-created",
+		type: "task.created",
+		taskId: "T1",
+		createdAt: "2026-10-30T00:00:00.000Z",
+		source: "tool",
 		title: "Native persistence slice",
-		objective: "Persist and restore a task without a model call",
-		acceptance_criteria: ["The persisted task state restores"],
-		plan_steps: [
+		objective: "Persist and restore a task without a model call during replay",
+		acceptanceCriteria: ["The persisted task state restores"],
+		planSteps: [
 			{
 				text: "Persist task state",
 				expectedOutput: "One pi-tasks custom event",
 				criterionIds: ["T1-AC1"],
 				evidenceRequired: true,
-				allowedActions: ["task_plan"],
+				allowedActions: ["task_update", "task_evidence"],
 				decompositionStatus: "atomic",
 				granularityCheck: {
 					isAtomic: true,
-					reason: "One tool call writes one custom event",
+					reason: "Legacy version 1 event fixture",
 					canBeDoneInOneAgentAction: true,
 					hasSingleObservableOutput: true,
 					hasSingleVerificationMethod: true,
@@ -178,7 +155,20 @@ function validPlan() {
 				},
 			},
 		],
+		activate: true,
 	};
+}
+
+function seedLegacyTask(sessionManager: {
+	appendMessage(message: unknown): string;
+	appendCustomEntry(customType: string, data?: unknown): string;
+}): void {
+	sessionManager.appendMessage({
+		role: "user",
+		content: "Seed native replay fixture",
+		timestamp: Date.now(),
+	});
+	sessionManager.appendCustomEntry("pi-tasks:event", legacyCreatedEvent());
 }
 
 async function createNativeSession(
@@ -189,6 +179,7 @@ async function createNativeSession(
 		excludeTools?: string[];
 		foreignTaskNotes?: boolean;
 		noTools?: "all" | "builtin";
+		seedTask?: boolean;
 	} = {},
 ) {
 	const base =
@@ -247,6 +238,9 @@ async function createNativeSession(
 	const sessionManager = options.sessionFile
 		? sdk.SessionManager.open(options.sessionFile, sessionDir)
 		: sdk.SessionManager.create(cwd, sessionDir);
+	if (options.seedTask) {
+		seedLegacyTask(sessionManager);
+	}
 	const result = await sdk.createAgentSession({
 		cwd,
 		agentDir,
@@ -261,7 +255,7 @@ async function createNativeSession(
 }
 
 describe("native Pi dynamic task tools", () => {
-	it("runs the persistent plan-to-event-to-new-session restore slice before broader cases", async () => {
+	it("replays a persisted legacy task through branch navigation and a new session", async () => {
 		const first = await createNativeSession();
 		try {
 			expect(activeTaskTools(first.session)).toEqual([
@@ -269,24 +263,7 @@ describe("native Pi dynamic task tools", () => {
 				"task_resume",
 			]);
 			const fresh = toolSurface(first.session);
-
-			appendNativeToolCall(first.sessionManager);
-			const created = await requireTool(first.session, "task_plan").execute(
-				"native-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
-			expect(created.content[0]?.text).toContain("Created task T1");
-			expect(
-				first.sessionManager
-					.getEntries()
-					.some(
-						(entry: { type: string; customType?: string }) =>
-							entry.type === "custom" && entry.customType === "pi-tasks:event",
-					),
-			).toBe(true);
-			expect(activeTaskTools(first.session)).toContain("task_update");
+			seedLegacyTask(first.sessionManager);
 			const taskEntry = first.sessionManager.getEntries().at(-1);
 			const precedingEntry = first.sessionManager.getEntries().at(-2);
 			assert.ok(taskEntry);
@@ -342,14 +319,8 @@ describe("native Pi dynamic task tools", () => {
 	});
 
 	it("enforces task_evidence text limits through the native Pi validator", async () => {
-		const active = await createNativeSession();
+		const active = await createNativeSession({ seedTask: true });
 		try {
-			await requireTool(active.session, "task_plan").execute(
-				"native-evidence-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			const evidence = requireTool(active.session, "task_evidence");
 			const argumentsAtBoundary = {
 				task_id: "T1",
@@ -393,15 +364,8 @@ describe("native Pi dynamic task tools", () => {
 	});
 
 	it("returns a native-valid evidence retry and restores the corrected evidence", async () => {
-		const active = await createNativeSession();
+		const active = await createNativeSession({ seedTask: true });
 		try {
-			appendNativeToolCall(active.sessionManager);
-			await requireTool(active.session, "task_plan").execute(
-				"native-evidence-retry-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			const evidence = requireTool(active.session, "task_evidence");
 			const persistedBefore = active.sessionManager
 				.getEntries()
@@ -456,6 +420,7 @@ describe("native Pi dynamic task tools", () => {
 			const correctedParams = {
 				...(retryExample as Record<string, unknown>),
 				level: "unit_test",
+				passed: "false",
 			};
 			expect(
 				piAi.validateToolArguments(evidence, {
@@ -496,15 +461,8 @@ describe("native Pi dynamic task tools", () => {
 	});
 
 	it("persists only corrected native scope updates after targeted recovery", async () => {
-		const active = await createNativeSession();
+		const active = await createNativeSession({ seedTask: true });
 		try {
-			appendNativeToolCall(active.sessionManager);
-			await requireTool(active.session, "task_plan").execute(
-				"native-scope-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			const update = requireTool(active.session, "task_update");
 			const persistedBefore = active.sessionManager
 				.getEntries()
@@ -565,16 +523,11 @@ describe("native Pi dynamic task tools", () => {
 	});
 
 	it("keeps foreign task_notes outside pi-tasks reconciliation", async () => {
-		const active = await createNativeSession({ foreignTaskNotes: true });
+		const active = await createNativeSession({
+			foreignTaskNotes: true,
+			seedTask: true,
+		});
 		try {
-			expect(isToolActive(active.session, "task_notes")).toBe(true);
-			appendNativeToolCall(active.sessionManager);
-			await requireTool(active.session, "task_plan").execute(
-				"foreign-active-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			expect(isToolActive(active.session, "task_notes")).toBe(true);
 			await requireTool(active.session, "task_resume").execute(
 				"foreign-active-resume",
@@ -594,15 +547,9 @@ describe("native Pi dynamic task tools", () => {
 		const inactive = await createNativeSession({
 			foreignTaskNotes: true,
 			tools: ["read", "task_plan", "task_resume"],
+			seedTask: true,
 		});
 		try {
-			expect(isToolActive(inactive.session, "task_notes")).toBe(false);
-			await requireTool(inactive.session, "task_plan").execute(
-				"foreign-inactive-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			expect(isToolActive(inactive.session, "task_notes")).toBe(false);
 			await requireTool(inactive.session, "task_resume").execute(
 				"foreign-inactive-resume",
@@ -623,15 +570,9 @@ describe("native Pi dynamic task tools", () => {
 	it("preserves allowlists, exclusions, noTools, and unrelated active tools", async () => {
 		const planOnly = await createNativeSession({
 			tools: ["read", "task_plan"],
+			seedTask: true,
 		});
 		try {
-			expect(activeTaskTools(planOnly.session)).toEqual(["task_plan"]);
-			await requireTool(planOnly.session, "task_plan").execute(
-				"plan-only",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			expect(activeTaskTools(planOnly.session)).toEqual(["task_plan"]);
 			expect(
 				planOnly.session.agent.state.tools.some(
@@ -645,14 +586,9 @@ describe("native Pi dynamic task tools", () => {
 		const excluded = await createNativeSession({
 			tools: ["read", "task_plan", "task_resume", "task_update"],
 			excludeTools: ["task_update"],
+			seedTask: true,
 		});
 		try {
-			await requireTool(excluded.session, "task_plan").execute(
-				"excluded",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			expect(activeTaskTools(excluded.session)).toEqual([
 				"task_plan",
 				"task_resume",
@@ -697,15 +633,8 @@ describe("native Pi dynamic task tools", () => {
 			rejected.session.dispose();
 		}
 
-		const first = await createNativeSession();
+		const first = await createNativeSession({ seedTask: true });
 		try {
-			appendNativeToolCall(first.sessionManager);
-			await requireTool(first.session, "task_plan").execute(
-				"blocked-plan",
-				validPlan(),
-				undefined,
-				undefined,
-			);
 			const blocked = await requireTool(first.session, "task_update").execute(
 				"blocked-update",
 				{

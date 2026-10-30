@@ -81,7 +81,7 @@ function isTaskEvent(value: unknown): value is TaskEvent {
 	if (!value || typeof value !== "object") return false;
 	const maybe = value as Partial<TaskEvent>;
 	return (
-		maybe.version === 1 &&
+		(maybe.version === 1 || maybe.version === 2) &&
 		typeof maybe.id === "string" &&
 		typeof maybe.type === "string"
 	);

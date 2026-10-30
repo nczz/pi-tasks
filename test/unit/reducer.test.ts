@@ -9,6 +9,7 @@ import {
 	replayTaskEvents,
 	TaskTransitionError,
 } from "../../src/reducer.ts";
+import { evidenceAssessment, planAssessment } from "./semantic-fixture.ts";
 
 const now = "2026-06-18T00:00:00.000Z";
 
@@ -294,217 +295,198 @@ describe("task reducer", () => {
 		expect(state.tasks.T1.currentStep).toBe("Run package dry-run");
 	});
 
-	it.each(["Run tests and update docs", "Run tests then update docs"])(
-		"rejects compound atomic step wording %j",
-		(text) => {
-			expect(() =>
-				apply([
-					{
-						...created(),
-						planSteps: [
-							{
-								text,
-								expectedOutput: "Test result is recorded",
-								criterionIds: ["T1-AC1"],
-								evidenceRequired: true,
-								allowedActions: ["npm test"],
-								decompositionStatus: "atomic",
-								granularityCheck: atomicCheck,
-							},
-						],
-					},
-				]),
-			).toThrow("multiple actions");
-		},
-	);
-
-	it("rejects one vague wording issue and names the matched token", () => {
-		expect(() =>
-			apply([
-				{
-					...created(),
-					planSteps: [
-						{
-							text: "Fix ablate --out checkpoint writing in cli.py",
-							expectedOutput: "cli.py writes a sharded checkpoint directory",
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: ["edit cli.py"],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-					],
-				},
-			]),
-		).toThrow('step text uses vague or broad wording ("Fix")');
-	});
-
-	it("rejects one compound output issue and names the matched token", () => {
-		expect(() =>
-			apply([
-				{
-					...created(),
-					planSteps: [
-						{
-							text: "Render checkpoint manifest",
-							expectedOutput: "Checkpoint and index written",
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: ["render checkpoint manifest"],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-					],
-				},
-			]),
-		).toThrow('expected output appears to contain multiple outputs ("and")');
-	});
-
-	it("reports quality failures from every invalid plan step", () => {
-		let caught: unknown;
-		try {
-			apply([
-				{
-					...created(),
-					planSteps: [
-						{
-							text: "Fix ablate --out checkpoint writing in cli.py",
-							expectedOutput: "cli.py writes a sharded checkpoint directory",
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: ["edit cli.py"],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-						{
-							text: "Render checkpoint manifest",
-							expectedOutput: "Checkpoint and index written",
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: ["render checkpoint manifest"],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-					],
-				},
-			]);
-		} catch (error) {
-			caught = error;
+	it("uses the persisted model decision instead of lexical wording", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
 		}
-
-		expect(caught).toBeInstanceOf(TaskTransitionError);
-		const message = (caught as Error).message;
-		expect(message).toContain(
-			'Plan step 1 failed quality gate: step text uses vague or broad wording ("Fix")',
-		);
-		expect(message).toContain(
-			'Plan step 2 failed quality gate: expected output appears to contain multiple outputs ("and")',
-		);
-	});
-
-	it("accepts concrete plan paths whose segments resemble action words", () => {
-		const paths = [
-			"fixtures/sample.json",
-			"fixtures/fix.json",
-			"fixtures/update.json",
-			"fixtures/then.json",
-			"fixtures/整理.json",
-			"fixtures\\fix.json",
-			"fix.json",
-			"my-fix.json",
-			"then-output.json",
-			".update.json",
-		];
-		for (const path of paths) {
-			const state = apply([
-				{
-					...created(),
-					planSteps: [
-						{
-							text: `Read the SHA-256 digest of ${path}`,
-							expectedOutput: `The SHA-256 digest for ${path}`,
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: [`Read ${path} using sha256sum`],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-					],
-				},
-			]);
-			expect(state.tasks.T1.planSteps[0]?.planQuality).toEqual({
-				score: 100,
-				issues: [],
-			});
-		}
-	});
-
-	it("accepts path-like action words in decomposed child steps", () => {
-		const paths = ["fixtures/fix.json", "fixtures/then.json"];
-		const state = apply([
-			coarseCreated(),
+		const sourceStep = base.planSteps[0];
+		if (!sourceStep) throw new Error("Expected one plan step");
+		const planSteps = [
 			{
-				...decompose(),
-				childSteps: paths.map((path) => ({
-					text: `Read the SHA-256 digest of ${path}`,
-					expectedOutput: `The SHA-256 digest for ${path}`,
-					criterionIds: ["T1-AC1"],
-					evidenceRequired: true,
-					allowedActions: [`Read ${path} using sha256sum`],
-					decompositionStatus: "atomic",
-					granularityCheck: atomicCheck,
-				})),
+				...sourceStep,
+				text: "Fix the parser and index output in src/parser.ts",
+				expectedOutput: "Parser and index output share one normalized record",
+			},
+		];
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: planSteps,
+		};
+		const state = apply([
+			{
+				...base,
+				version: 2,
+				planSteps,
+				semanticAssessment: planAssessment(input),
 			},
 		]);
-		expect(
-			state.tasks.T1.planSteps.map((step) => step.planQuality.score),
-		).toEqual([100, 100]);
+
+		expect(state.tasks.T1.planSteps[0]).toMatchObject({
+			decompositionStatus: "atomic",
+			semanticAssessment: { decision: "atomic" },
+			planQuality: { score: 95, issues: [] },
+		});
 	});
 
-	it("keeps rejecting genuinely broad plan wording", () => {
+	it("persists the model decision when a step needs decomposition", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
+		const state = apply([
+			{
+				...base,
+				version: 2,
+				semanticAssessment: planAssessment(input, ["needs_breakdown"]),
+			},
+		]);
+
+		expect(state.tasks.T1.planSteps[0]).toMatchObject({
+			decompositionStatus: "needs_breakdown",
+			granularityCheck: { isAtomic: false },
+			semanticAssessment: { decision: "needs_breakdown" },
+		});
+	});
+
+	it("requires semantic assessment on version 2 plan mutations", () => {
+		expect(() => apply([{ ...created(), version: 2 }])).toThrow(
+			"Version 2 plan mutations require a native semantic assessment",
+		);
+	});
+
+	it("rejects a model-assessed nonspecific plan step", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
 		expect(() =>
 			apply([
 				{
-					...created(),
-					planSteps: [
-						{
-							text: "Fix the whole project",
-							expectedOutput: "Complete all fixes in the project",
-							criterionIds: ["T1-AC1"],
-							evidenceRequired: true,
-							allowedActions: ["Update project files"],
-							decompositionStatus: "atomic",
-							granularityCheck: atomicCheck,
-						},
-					],
+					...base,
+					version: 2,
+					semanticAssessment: planAssessment(input, ["rejected"]),
 				},
 			]),
-		).toThrow("vague or broad wording");
+		).toThrow("failed semantic assessment");
 	});
 
-	it.each(["Fix.", "Update.", "Complete."])(
-		"keeps rejecting broad action words followed by sentence punctuation: %s",
-		(text) => {
-			expect(() =>
-				apply([
-					{
-						...created(),
-						planSteps: [
-							{
-								text,
-								expectedOutput: `Result: ${text}`,
-								criterionIds: ["T1-AC1"],
-								evidenceRequired: true,
-								allowedActions: [text],
-								decompositionStatus: "atomic",
-								granularityCheck: atomicCheck,
-							},
-						],
-					},
-				]),
-			).toThrow("vague or broad wording");
-		},
-	);
+	it("rejects a semantic assessment copied to changed plan input", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
+		expect(() =>
+			apply([
+				{
+					...base,
+					version: 2,
+					objective: "Changed after assessment",
+					semanticAssessment: planAssessment(input),
+				},
+			]),
+		).toThrow("input hash does not match");
+	});
+
+	it("rejects invalid semantic provenance during replay", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
+		const semanticAssessment = planAssessment(input);
+		semanticAssessment.provenance.strategy =
+			"external_sdk" as typeof semanticAssessment.provenance.strategy;
+
+		expect(() =>
+			apply([
+				{
+					...base,
+					version: 2,
+					semanticAssessment,
+				},
+			]),
+		).toThrow("Semantic assessment provenance is invalid");
+	});
+
+	it("rejects out-of-contract semantic judgment values during replay", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
+		const semanticAssessment = planAssessment(input);
+		const first = semanticAssessment.steps[0];
+		if (!first) throw new Error("Expected one semantic assessment");
+		first.actionCount.value = "zero" as typeof first.actionCount.value;
+
+		expect(() =>
+			apply([
+				{
+					...base,
+					version: 2,
+					semanticAssessment,
+				},
+			]),
+		).toThrow("invalid judgments");
+	});
+
+	it("rejects plan semantic issues inconsistent with judgments", () => {
+		const base = created();
+		if (base.type !== "task.created" || !base.planSteps) {
+			throw new Error("Expected a task creation event");
+		}
+		const input = {
+			title: base.title,
+			objective: base.objective,
+			acceptanceCriteria: base.acceptanceCriteria,
+			steps: base.planSteps,
+		};
+		const semanticAssessment = planAssessment(input);
+		const first = semanticAssessment.steps[0];
+		if (!first) throw new Error("Expected one semantic assessment");
+		first.issues = ["step contains hidden subtasks"];
+
+		expect(() =>
+			apply([
+				{
+					...base,
+					version: 2,
+					semanticAssessment,
+				},
+			]),
+		).toThrow("inconsistent issues");
+	});
 
 	it("does not auto-link criterion evidence to multiple matching child steps", () => {
 		const sharedCriterionDecompose: TaskEvent = {
@@ -738,117 +720,114 @@ describe("task reducer", () => {
 		).toThrow(TaskTransitionError);
 	});
 
-	it("accepts a long concrete passing summary that contains the word Done", () => {
+	it("accepts any language when persisted evidence semantics support the pass", () => {
+		const evidenceEvent = evidence({
+			evidence: {
+				id: "E1",
+				type: "test",
+				level: "unit_test",
+				summary: "完成了",
+				passed: true,
+				references: ["npm test"],
+				quality: {
+					source: "vitest",
+					reproducible: true,
+					verifier: "tool",
+					command: "npm test",
+					artifactRefs: ["npm test"],
+					observedOutput: "96 tests passed, exit code 0",
+				},
+			},
+		});
+		if (
+			evidenceEvent.type !== "task.evidence_added" ||
+			!evidenceEvent.evidence.quality
+		) {
+			throw new Error("Expected an evidence event with quality");
+		}
+		const input = {
+			type: evidenceEvent.evidence.type,
+			level: evidenceEvent.evidence.level,
+			summary: evidenceEvent.evidence.summary,
+			references: evidenceEvent.evidence.references,
+			quality: evidenceEvent.evidence.quality,
+		};
 		const state = apply([
 			created(),
-			evidence({
-				evidence: {
-					id: "E1",
-					type: "command",
-					level: "integration_test",
-					summary:
-						"pi-tasks CLI: ensure --status Done read back MATCH Done/Done; task marked done in board after 3 updates",
-					passed: true,
-					references: ["pi-tasks ensure"],
-					quality: {
-						source: "cli",
-						reproducible: true,
-						verifier: "tool",
-						command: "pi-tasks ensure --status Done",
-						artifactRefs: ["pi-tasks ensure"],
-						observedOutput: "MATCH Done/Done",
-					},
-				},
-			}),
+			{
+				...evidenceEvent,
+				version: 2,
+				semanticAssessment: evidenceAssessment(input),
+			},
 		]);
-		expect(state.tasks.T1.evidence).toHaveLength(1);
+		expect(state.tasks.T1.evidence[0]?.semanticAssessment).toMatchObject({
+			decision: "supported",
+			confidence: 0.95,
+		});
 	});
 
-	it.each(["CLI returned MATCH Done/Done", "畫面顯示完成了並回傳 code 0"])(
-		"accepts short concrete passing summary %j",
-		(summary) => {
-			const state = apply([
+	it("rejects passing evidence when persisted semantics do not support it", () => {
+		const evidenceEvent = evidence();
+		if (
+			evidenceEvent.type !== "task.evidence_added" ||
+			!evidenceEvent.evidence.quality
+		) {
+			throw new Error("Expected an evidence event with quality");
+		}
+		const input = {
+			type: evidenceEvent.evidence.type,
+			level: evidenceEvent.evidence.level,
+			summary: evidenceEvent.evidence.summary,
+			references: evidenceEvent.evidence.references,
+			quality: evidenceEvent.evidence.quality,
+		};
+		expect(() =>
+			apply([
 				created(),
-				evidence({
-					evidence: {
-						id: "E1",
-						type: "command",
-						level: "integration_test",
-						summary,
-						passed: true,
-						references: ["pi-tasks smoke"],
-						quality: {
-							source: "cli",
-							reproducible: true,
-							verifier: "tool",
-							command: "pi-tasks smoke",
-							artifactRefs: ["pi-tasks smoke"],
-							observedOutput: "MATCH Done/Done",
-						},
-					},
-				}),
-			]);
-			expect(state.tasks.T1.evidence).toHaveLength(1);
-		},
-	);
+				{
+					...evidenceEvent,
+					version: 2,
+					semanticAssessment: evidenceAssessment(input, "unsupported"),
+				},
+			]),
+		).toThrow("failed semantic assessment");
+	});
 
-	it.each(["完成了", "看起來可以", "應該沒問題", "似乎正常"])(
-		"rejects vague Chinese passing summary %j",
-		(summary) => {
-			expect(() =>
-				apply([
-					created(),
-					evidence({
-						evidence: {
-							id: "E1",
-							type: "test",
-							level: "unit_test",
-							summary,
-							passed: true,
-							references: ["npm test"],
-							quality: {
-								source: "vitest",
-								reproducible: true,
-								verifier: "tool",
-								artifactRefs: ["npm test"],
-								observedOutput: "Test suite passed",
-							},
-						},
-					}),
-				]),
-			).toThrow(/too vague for passing evidence \(matched ".+"\)/);
-		},
-	);
+	it("rejects supported evidence semantics that retain material issues", () => {
+		const evidenceEvent = evidence();
+		if (
+			evidenceEvent.type !== "task.evidence_added" ||
+			!evidenceEvent.evidence.quality
+		) {
+			throw new Error("Expected an evidence event with quality");
+		}
+		const input = {
+			type: evidenceEvent.evidence.type,
+			level: evidenceEvent.evidence.level,
+			summary: evidenceEvent.evidence.summary,
+			references: evidenceEvent.evidence.references,
+			quality: evidenceEvent.evidence.quality,
+		};
+		const semanticAssessment = evidenceAssessment(input);
+		semanticAssessment.issues = ["contradictory_result"];
 
-	it.each(["done", "Done.", "looks good", "vitest done"])(
-		"rejects vague passing summary %j and names the matched fragment",
-		(summary) => {
-			expect(() =>
-				apply([
-					created(),
-					evidence({
-						evidence: {
-							id: "E1",
-							type: "test",
-							level: "unit_test",
-							summary,
-							passed: true,
-							references: ["npm test"],
-							quality: {
-								source: "vitest",
-								reproducible: true,
-								verifier: "tool",
-								artifactRefs: ["npm test"],
-								observedOutput: "Test suite passed",
-							},
-						},
-					}),
-				]),
-			).toThrow(
-				/too vague for passing evidence \(matched "(done|looks good)"\)/i,
-			);
-		},
-	);
+		expect(() =>
+			apply([
+				created(),
+				{
+					...evidenceEvent,
+					version: 2,
+					semanticAssessment,
+				},
+			]),
+		).toThrow("cannot contain issues");
+	});
+
+	it("requires semantic assessment on version 2 passing evidence", () => {
+		expect(() => apply([created(), { ...evidence(), version: 2 }])).toThrow(
+			"requires a native semantic assessment",
+		);
+	});
 
 	it("rejects low-quality evidence without observed output", () => {
 		expect(() =>

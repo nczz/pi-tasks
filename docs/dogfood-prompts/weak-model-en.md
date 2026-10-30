@@ -5,19 +5,17 @@ Use these short prompts in real Pi sessions with `pi-tasks` enabled before a rel
 ## Source Extension Hardening
 
 ```text
-Weak-model hardening dogfood. First call task_resume with no active task and confirm it recommends task_plan. Then call task_plan once with a deliberately invalid atomic step text 'Run tests and update docs' so compound wording is rejected. Then create a valid task named Weak Model Hardening with one acceptance criterion and two atomic plan steps; omit criterionIds manually; each step must have one action, one output, one verification method, allowedActions ["task_evidence"], and no compound wording. Then call task_evidence once targeting future step T1-S2 while current step is T1-S1; include complete quality fields with source, verifier, reproducible=true, command, artifactRefs, and observedOutput so current-step lock is the rejection being tested. Then call task_evidence once with summary exactly equal to "budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-budget-overflow-" so evidence budget rejects it. Finally call task_next and task_list without include_evidence, and report exact rejections plus the only next tool.
+Native semantic hardening dogfood. First call task_resume with no active task and confirm it recommends task_plan. Then call task_plan with one semantically atomic step: "Update the package.json version field to 0.3.0", expected output "package.json contains one version value: 0.3.0", and evidenceRequired=true. Do not submit granularityCheck or decompositionStatus; omit criterionIds so pi-tasks links the generated criterion. Confirm the ordinary action word "Update" does not cause a keyword-based rejection and the step is atomic. Then call task_evidence for the current step with passed=true, type=command, level=e2e_smoke, summary "The package version update should be complete", references and artifactRefs ["package.json"], source "planned version check", reproducible=true, verifier=tool, command "node -p require('./package.json').version", and observedOutput "The version should be 0.3.0 after the update". Confirm semantic assessment rejects this future expectation even though every structural field is valid. Retry with summary "package.json returned version 0.3.0" and observedOutput "package.json returned version 0.3.0", then confirm acceptance. Finally call task_next and report its single recommended action.
 ```
 
 ## Installed Package Smoke
 
 ```text
-Installed weak-model smoke. Call task_resume with no active task and confirm it recommends task_plan. Then call task_plan with one deliberately invalid atomic step text 'Run tests and update docs' and report whether compound wording is rejected with structured recovery.
+Installed native-semantic smoke. Call task_resume with no active task, then call task_plan with the atomic step "Update the package.json version field to 0.3.0". Omit caller-authored granularity fields. Report whether the ordinary action word is accepted without keyword-based regex rejection and whether structured recovery is returned if the host has no native model boundary.
 ```
 
 Expected observations:
 
-- The broad step is rejected by the plan quality gate.
-- `task_next` returns one recommended next tool, minimum params, blocked tools, and current-step lock.
-- Future-step evidence is rejected unless an explicit override reason is supplied.
-- Oversized evidence summary is rejected.
-- Completion is rejected until step, criterion, evidence, blocker, decision, and scope-drift gaps are closed.
+- An ordinary action word such as `Update` does not trigger keyword-based rejection.
+- Passing evidence whose structurally valid observed-output field contains only a future expectation is rejected by semantic assessment.
+- Passing evidence with a concrete observed result is accepted, and `task_next` returns one recommended action.

@@ -10,6 +10,7 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "../../src/pi-types.ts";
+import { fakeSemanticRuntime } from "./semantic-fixture.ts";
 
 const createEvent: TaskEvent = {
 	version: 1,
@@ -112,6 +113,7 @@ function createHarness(initialEvents: TaskEvent[] = []) {
 				ui.widget = content;
 			},
 		},
+		...fakeSemanticRuntime(),
 	};
 
 	taskExtension(pi);

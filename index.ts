@@ -44,7 +44,7 @@ export default function (pi: ExtensionAPI) {
 		if (Object.keys(state.tasks).length > 0) {
 			const createdAt = new Date().toISOString();
 			const event: TaskEvent = {
-				version: 1,
+				version: 2,
 				id: `snapshot-${createdAt}`,
 				type: "task.snapshot",
 				taskId: state.activeTaskId ?? "snapshot",

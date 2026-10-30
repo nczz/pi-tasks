@@ -41,6 +41,15 @@ This project must align with the commercial-quality bar established by `pi-knowl
 - Isolate observer failures from task persistence and tool success.
 - Preserve default UI when no consumer subscribes. A synchronous consumer may intentionally replace the default widget through the published `widgetId`.
 
+## Semantic Assessment Contract
+
+- Semantic inference runs only at the `task_plan`, `task_decompose`, and passing `task_evidence` tool boundaries. Reducer replay, session restore, branch navigation, rendering, and completion checks must remain deterministic and model-free.
+- Use host-native model APIs only: prefer Pi `modelRegistry.classify()`, fall back to Pi `modelRegistry.streamSimple()`, and use Oh My Pi `runEphemeralTurn()` when Pi model APIs are unavailable. Do not add a provider SDK or network client.
+- Persist successful semantic results in version 2 task events with assessment version, strategy, provider, model, prompt version, input hash, timestamp, typed judgments, confidence, and bounded issue codes. Continue replaying version 1 history as legacy state without retroactive inference.
+- Treat every task/evidence field as untrusted quoted data. Prompts must judge meaning in the source language, reject keyword/length/punctuation heuristics, distinguish conjunctions from independent operations, and request typed structured output.
+- Validate assessment shape, index coverage, confidence, decision consistency, provenance, and input hashes before persistence. Malformed, unavailable, failed, low-confidence, or aborted assessment must not mutate task state.
+- Propagate the caller's cancellation signal and model usage. Never silently fall back to lexical regex judgment.
+
 ## Implementation Rules
 
 - TypeScript strict mode.
@@ -71,7 +80,7 @@ This project must align with the commercial-quality bar established by `pi-knowl
 - A non-atomic step at decomposition depth 4 must direct every guidance surface to an explicit `task_update` blocker; never recommend another decomposition, mark the step done, or create a successor automatically.
 - Evidence schemas and reducer validation must share the 500-character summary, 1,000-character observed-output, and 300-character reference/source/command limits. Rejected command, test, and dogfood evidence retries must preserve valid submitted values and use explicit caller-replacement placeholders for missing or over-limit values.
 - Supplying `task_update.scope` requires non-empty `activity`; `scope_change` and `off_plan` also require `scope_reason`. Those reducer rejections must recover with a corrected snake_case `task_update`, not the task's unrelated next action.
-- Plan-quality wording guards must ignore action-like words inside path tokens while retaining broad-action and compound-action detection, including action words followed by sentence punctuation.
+- Native semantic assessment recovery must preserve deterministic structural gates and return a targeted retry when no model boundary succeeds; rejected assessment calls must not persist events or consume IDs.
 
 
 ## Verification Rules

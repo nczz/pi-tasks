@@ -102,6 +102,34 @@ their critical guidance into descriptions. Lazily activated controls keep only
 compact descriptions so native Pi can add them without active-only prompt
 metadata.
 
+### Native semantic assessment
+
+`task_plan`, `task_decompose`, and passing `task_evidence` records use the host's
+native model boundary to judge meaning in the source language. pi-tasks prefers
+Pi classifier models, falls back to Pi's structured `modelRegistry.streamSimple()`,
+and uses Oh My Pi's `runEphemeralTurn()` when Pi model APIs are unavailable. It
+does not ship a provider SDK or call an external model endpoint directly.
+
+The assessor handles English, Traditional and Simplified Chinese, Japanese,
+Korean, and mixed technical text under one language-neutral policy. It judges
+whether operations are independently executable or verifiable; a conjunction,
+filename, keyword, or text length is never sufficient by itself. Task and
+evidence fields are quoted as untrusted data, and typed model output is validated
+before persistence.
+
+Successful results are stored in version 2 task events with their input hash,
+model provenance, prompt version, confidence, and decision. Replay, resume,
+branch navigation, rendering, and completion remain deterministic and never
+re-run inference. Existing version 1 sessions continue to replay as legacy
+history.
+
+Semantic calls consume model tokens and can add latency. Pi classifier/chat calls
+send only the assessment payload. Oh My Pi ephemeral turns may include the
+current conversation snapshot according to the host's side-turn contract; use
+the same data-handling policy as the active OMP conversation. If all native
+boundaries are unavailable or return invalid output, the mutation fails closed
+with a retry instead of reverting to regex heuristics.
+
 ## Agent Tools
 
 | Tool | Purpose |
@@ -125,8 +153,8 @@ metadata.
 - Evidence fields expose the same limits enforced by the reducer: summaries 500 characters, observed output 1,000, and each reference/source/command 300. Retry templates preserve valid values and replace invalid over-limit values with explicit placeholders.
 - `task_update.scope` requires `activity`; `scope_change` and `off_plan` also require `scope_reason`. Missing fields return a targeted `task_update` recovery using the public snake_case parameter names.
 - Empty or omitted `criterionIds` on new and decomposed steps auto-link the available task criteria; non-empty arrays must contain known generated IDs.
-- Atomic plan-quality issues are hard failures. Wording failures name the matched fragment, and one rejection reports every invalid plan step so callers can correct the full plan in one retry.
-- Plan quality still rejects broad or compound actions, but action-like filename segments such as `fixtures/fix.json`, `update.json`, and `then.json` are treated as paths rather than instructions.
+- Plan and decomposition quality is assessed from meaning in the source language through the native Pi/OMP model boundary. Caller-supplied `granularityCheck` fields are not accepted, and `allowedActions` is optional.
+- Assessment failures are fail-closed and retryable. Rejected calls persist nothing, consume no task/evidence IDs, and never fall back to keyword regexes.
 
 
 ## Completion Gates
@@ -239,10 +267,10 @@ blockers, and evidence references; custom UI extensions should keep them local.
 - Typed task, acceptance criterion, evidence, decision, blocker, and event model
 - Pure reducer with transition validation and evidence-before-completion enforcement
 - Ordered plan steps; agents must complete or skip the current step before advancing
-- Step-level contracts with expected output, linked criteria, required evidence, and allowed actions
-- Plan quality gate rejects vague, unverifiable, or over-broad atomic steps
-- Stricter atomic scoring rejects compound wording (`and`, `then`, `並且`, `然後`)
-- Recursive decomposition gate for non-atomic steps, with explicit blocker recovery at depth 4
+- Step-level contracts with expected output, linked criteria, required evidence, and optional allowed actions
+- Native-model plan quality assessment distinguishes one semantic operation from independently executable or verifiable work across supported source languages
+- Persisted version 2 semantic provenance keeps session replay deterministic and model-free while retaining version 1 history compatibility
+- Recursive decomposition gate for model-assessed non-atomic steps, with explicit blocker recovery at depth 4
 - Step-scoped evidence through `task_evidence.step_ids`
 - Current-step evidence lock unless explicit `override_reason` is supplied
 - Evidence quality gate: traceable, reproducible, with artifact references
@@ -263,9 +291,9 @@ blockers, and evidence references; custom UI extensions should keep them local.
 Local verification suite:
 
 - `PI_SDK_ROOT=/path/to/@earendil-works/pi-coding-agent npm run release:check` (typecheck + lint + unit/native tests + build + import smoke + pack + audit)
-- Real Pi dogfood most recently passed on 2026-10-14.
+- Real Pi 1.3.0 and Oh My Pi 18.14.0 dogfood most recently passed on 2026-10-30.
 
-Dogfood coverage includes: task lifecycle, evidence enforcement and bounded retry recovery, ordered step rejection, path-token plan quality, maximum-depth blocker recovery, targeted scope recovery, recursive decomposition, compaction-safe resume, duplicate evidence detection, decision/blocker rendering, forked-session replay, live `/tasks detail`, clean `/quit`, tarball install, and English/Traditional Chinese weak-model smoke.
+Dogfood coverage includes: native Pi chat and OMP ephemeral semantic assessment, English and Traditional Chinese plan/evidence judgments, task lifecycle, unsupported evidence rejection, ordered step rejection, recursive decomposition, same-session resume, fork replay, live `/tasks detail`, clean `/quit`, and installed-tarball smoke.
 
 ## Documentation
 

@@ -4,9 +4,9 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 ## Current Status
 
-Date: 2026-09-06
+Date: 2026-10-30
 
-Result: passed for the scoped MVP dogfood gate, release-hardening dogfood gate, weak-model release gate, installed-package smoke, 0.1.5 receiver-bound append compatibility release gate, 0.2.0 state-event source/resume/fork/live-TTY/manual-compaction/installed-package smoke, 0.2.4 Issue #3 weak-model/Oh My Pi evidence-schema release gate, 0.2.5 Issue #4 superseded-evidence release gate, and 0.2.6 vague-evidence summary release gate.
+Result: passed through the 0.3.0 native semantic assessment release gate, including real Pi and Oh My Pi model boundaries, deterministic replay, English and Traditional Chinese semantic cases, and prior release scopes.
 
 Environment:
 
@@ -87,6 +87,14 @@ Environment:
 - 0.2.6 fork replay session ID: `release-026-fork`
 - 0.2.6 installed package smoke root: `/private/tmp/pi-tasks-release-026-installed`
 - 0.2.6 installed package session ID: `release-026-installed-vague`
+- 0.3.0 dogfood root: `/tmp/pi-tasks-030`
+- 0.3.0 Pi version/model: `1.3.0`, `openai-codex/gpt-5.6-sol`
+- 0.3.0 Pi lifecycle transcript: `/tmp/pi-tasks-030/pi-sessions/2026-10-30T18-19-33-176Z_pi-tasks-030-lifecycle-2.jsonl`
+- 0.3.0 Pi English semantic transcript: `/tmp/pi-tasks-030/weak-pi/2026-10-30T18-32-14-908Z_weak-en-final.jsonl`
+- 0.3.0 Oh My Pi version/model: `18.14.0`, `google-antigravity/gemini-2.5-flash`
+- 0.3.0 OMP lifecycle transcript: `/tmp/pi-tasks-030/omp-sessions/2026-10-30T18-26-31-223Z_01a18e10-3cb7-762f-bc1f-77654068ea7d.jsonl`
+- 0.3.0 OMP Traditional Chinese semantic transcript: `/tmp/pi-tasks-030/weak-omp-final/2026-10-30T18-32-50-660Z_01a18e16-06e4-7156-91c8-ef54de7742ef.jsonl`
+- 0.3.0 installed-tarball Pi transcript: `/tmp/pi-tasks-030/installed/2026-10-30T18-40-32-511Z_installed-semantic-release-final.jsonl`
 
 ## Passed Scenarios
 
@@ -1147,6 +1155,27 @@ Live Pi TUI `/tasks detail` rendered the completed task, resolved blocker, decis
 The fixed English and Traditional Chinese weak-model source prompts passed compound-plan rejection, future-step evidence lock, the 500-character evidence summary budget, and single-tool `task_next` convergence. The Chinese prompt previously asked the model to generate at least 501 repeated characters and could exhaust the external model turn before a tool call; it now supplies the same fixed 576-character over-limit value used by the deterministic English prompt.
 
 Installed-package smoke loaded the release-check consumer's `pi-tasks-0.2.10` tarball. The installed extension returned structured recovery with the exact `"update"` and `"and"` matches for an invalid plan, then separately created task `T1` from a valid atomic step with `criterionIds: []` and generated `T1-S1` / `T1-AC1`.
+
+No npm publication was performed; npm publication remains a manual maintainer action.
+
+## 0.3.0 Native Semantic Assessment Dogfood (2026-10-30)
+
+Real Pi 1.3.0 used `openai-codex/gpt-5.6-sol`. The source lifecycle persisted version 2 `pi_chat` provenance, let the model classify a multi-operation release step as `needs_breakdown`, decomposed it, rejected unsupported passing evidence, accepted corrected observed evidence, completed the task, restored it in the same session, replayed it in a fork, rendered `/tasks detail`, and exited `/quit` with code 0.
+
+Real Oh My Pi 18.14.0 used `google-antigravity/gemini-2.5-flash`. The source lifecycle persisted `omp_ephemeral` provenance through `runEphemeralTurn()`, created and updated task `T1`, attached evidence `E1`, completed and listed the task, restored `T1` and `E1` in a resumed session, rendered the task through `/tasks detail`, and exited `/quit` with code 0.
+
+The fixed English Pi prompt accepted ordinary `Update` wording, rejected structurally valid passing evidence whose claimed observation was only a future expectation with `missing_observation` and `hedged_claim`, accepted corrected evidence `E2`, and made `task_next` recommend `task_update`. The fixed Traditional Chinese OMP prompt accepted「更新」, rejected the future expectation with `missing_observation`, accepted corrected evidence `E2`, and also converged on `task_update`.
+
+Real-host checks found and fixed two boundary incompatibilities before the successful runs: Pi chat requests no longer force a provider-rejected `temperature`, and OMP ephemeral requests no longer send an unsupported output-token cap.
+
+Release candidate gate:
+
+```sh
+PI_SDK_ROOT=/tmp/pi-tasks-sdk-1.4.0/node_modules/@earendil-works/pi-coding-agent \
+  npm run release:check
+```
+
+Observed result: passed strict typecheck, Biome, 103 unit tests, 7 native Pi SDK 1.4.0 tests, build, source/dist import smoke, `npm pack --dry-run`, clean `pi-tasks-0.3.0.tgz` install/import, and a zero-vulnerability audit. In the clean installed consumer, a vague first smoke step correctly failed closed; the corrected concrete read-and-command step then created `T1` through `node_modules/pi-tasks/dist/index.js` with version 2 native `pi_chat` semantic provenance.
 
 No npm publication was performed; npm publication remains a manual maintainer action.
 

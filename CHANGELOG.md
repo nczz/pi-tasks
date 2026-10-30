@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-30
+
+### Added
+- Added native semantic assessment adapters for Pi classifier models, Pi `modelRegistry.streamSimple()`, and Oh My Pi `runEphemeralTurn()`.
+- Added versioned, persisted plan-step and passing-evidence assessments with provider, model, prompt version, input hash, confidence, and decision provenance.
+- Added multilingual semantic coverage for English, Traditional Chinese, Simplified Chinese, Japanese, Korean, and mixed technical text.
+
+### Changed
+- Replaced language-specific vague/compound regex gates with model judgments for plan creation, decomposition, and passing-evidence support.
+- Made `allowedActions` optional and removed caller-supplied granularity scoring from plan and decomposition schemas; pi-tasks now derives granularity from the native model assessment.
+- Kept replay deterministic and model-free: version 2 events carry validated assessments, while version 1 histories remain readable as legacy events.
+
+### Fixed
+- Eliminated the keyword false positives and repeated correction loops reported in #14, including ordinary words such as `fix`, `update`, `implement`, and conjunctions used within one semantic operation.
+- Added stale-step detection around asynchronous decomposition assessment and delayed task-ID allocation until a plan assessment succeeds.
+- Removed provider-incompatible `temperature` from Pi chat assessment calls and omitted unsupported output-token caps from Oh My Pi ephemeral turns after real-host dogfood exposed both boundary mismatches.
+- Strengthened replay validation for semantic strategy, input hashes, timestamps, judgment-derived issue lists, and evidence decision/issue consistency.
+- Revalidated passing evidence against current task state after asynchronous assessment and preflighted non-passing evidence before ID allocation, so rejected or stale mutations do not consume evidence IDs.
+
+### Security
+- Treats all task and evidence fields as untrusted quoted data in semantic prompts, validates typed model output before persistence, supports cancellation, and fails closed when no native assessment boundary succeeds.
+
 ## [0.2.10] - 2026-10-24
 
 ### Fixed
