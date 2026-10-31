@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+- Added verified Pi and Oh My Pi install and upgrade guidance for npm and local sources, targeted updates, explicit-version pins, safe checkout updates, build activation, source verification, and host restarts.
+- Removed volatile competitor counters and unsupported uniqueness claims; added source links and refreshed capability summaries.
+
 ## [0.3.1] - 2026-10-31
 
 ### Added

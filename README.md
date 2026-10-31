@@ -10,7 +10,7 @@ AI coding agents say "done" without proof. Context compaction loses progress. Mu
 
 ## What makes it different
 
-Every other task tool for AI agents is just a todo list. pi-tasks enforces three hard contracts no competitor offers:
+pi-tasks focuses on three enforced execution contracts:
 
 | Contract | What it means |
 |----------|---------------|
@@ -27,40 +27,110 @@ Different tools solve different parts of the agentic workflow. Pick based on wha
 | Tool | Focus | Strengths | Trade-offs |
 |------|-------|-----------|------------|
 | **Claude Code Tasks** (built-in) | Cross-session coordination | Shared task lists, dependency tracking, zero setup | No completion verification, no step-level contracts |
-| **rpiv-pi** (9.4K/mo, 413★) | Structured workflows | 6 end-to-end flows, 12 subagents, code-review loops | Workflow-oriented; task visibility via separate rpiv-todo |
-| **@tintinweb/pi-tasks** (3.2K/mo, 113★) | Task tracking & subagents | Dependency DAG, auto-cascade, file/session/project scoping | Tracks progress; completion is self-reported |
-| **Microsoft hve-core** (1,183★) | RPI workflow for Copilot | Research→Plan→Implement→Review, custom agents | Copilot-native; not designed for Pi |
+| **[rpiv-pi](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-pi)** | Structured workflows | 4 pipelines, 30 skills, 15 subagents, detached reviewable stages | Workflow-oriented; task visibility comes from sibling rpiv-todo |
+| **[@tintinweb/pi-tasks](https://github.com/tintinweb/pi-tasks)** | Task tracking & subagents | Dependency DAG, auto-cascade, file/session/project scoping | Tracks progress; completion is self-reported |
+| **[Microsoft hve-core](https://github.com/microsoft/hve-core)** | RPI workflow for Copilot | Research→Plan→Implement→Review, custom agents | Copilot-native; not designed for Pi |
 | **pi-tasks** (this project) | Execution contracts | Evidence-gated completion, atomic decomposition, compaction-safe resume | Narrower scope; no subagent orchestration (yet) |
 
 **pi-tasks is for you if** your core problem is agents claiming "done" without proof, plans drifting mid-execution, or context compaction losing progress. If you need workflow orchestration or multi-agent coordination, the tools above may be a better fit — or complement pi-tasks.
 
 ## Install
 
+### npm package
+
+For Pi:
+
 ```sh
 pi install npm:pi-tasks
 ```
 
-For Oh My Pi (`omp`):
+For Oh My Pi:
 
 ```sh
-omp install pi-tasks
+omp plugin install npm:pi-tasks
 ```
 
-Equivalent explicit plugin command:
+`omp install pi-tasks` is an equivalent shorthand. OMP's `--scope project`
+applies to marketplace references such as `name@marketplace`; npm package
+specifications remain user-scoped.
+
+### Local checkout
+
+Build before registering a checkout because `dist/` is not committed:
 
 ```sh
-omp plugin install pi-tasks
-```
+cd /path/to/pi-tasks
+npm ci
+npm run typecheck
+npm test
+npm run build
 
-Oh My Pi's `--scope project` flag is for marketplace refs such as
-`name@marketplace`; it is ignored for npm package specs like `pi-tasks`.
-
-For local development:
-
-```sh
+# Register with the host you use:
 pi install ./
-omp plugin install ./
+omp plugin link "$(pwd)"
 ```
+
+Use either the npm package or the local checkout for a host, not both. Check
+Pi with `pi list` and OMP with `omp plugin list --json` when switching sources.
+
+## Upgrade
+
+### npm-installed package
+
+Update only pi-tasks in Pi:
+
+```sh
+pi update npm:pi-tasks
+pi list
+```
+
+Use `pi update --extensions` instead when every installed Pi extension should
+be updated.
+
+Update only pi-tasks in OMP:
+
+```sh
+omp plugin upgrade pi-tasks
+omp plugin list --json
+omp plugin doctor
+```
+
+Bare `omp plugin upgrade` and `omp update --plugins --check` report marketplace
+plugin status; they do not confirm that this npm plugin was upgraded.
+
+Install the unversioned Pi source (`npm:pi-tasks`) to follow the npm `latest`
+tag. Pi preserves explicitly versioned sources such as
+`npm:pi-tasks@<version>`. To remove a pin:
+
+1. Run `pi list`.
+2. Pass the exact pinned source shown there to `pi remove`.
+3. Run `pi install npm:pi-tasks`.
+
+### Local checkout
+
+A linked checkout is updated from Git, not from the npm registry. Finish,
+commit, or stash local edits before pulling. Exit Pi and OMP processes that use
+the checkout before replacing dependencies or build output.
+
+```sh
+cd /path/to/pi-tasks
+git status --short
+git pull --ff-only  # only when the checkout is clean and follows a remote branch
+npm ci
+npm run typecheck
+npm test
+npm run build
+```
+
+When actively developing local changes, skip `git pull --ff-only` and build the
+current tree. The manifest loads `dist/index.js`, so source edits are inactive
+until the build succeeds. The local registration only needs to be repeated when
+its path or host settings change.
+
+Pi and OMP load extension modules once per process. Start a new host process
+after a successful registry upgrade or local build. Then use `pi list` to
+confirm Pi's selected source, or `omp plugin list --json` to confirm OMP's
+installed version and path.
 
 ## How it works
 
@@ -168,7 +238,6 @@ still include the current conversation snapshot under its side-turn contract.
 - Empty or omitted `criterionIds` on new and decomposed steps auto-link the available task criteria; non-empty arrays must contain known generated IDs.
 - Plan and decomposition quality is assessed from meaning in the source language through the native Pi/OMP model boundary. Caller-supplied `granularityCheck` fields are not accepted, and `allowedActions` is optional.
 - Assessment failures are fail-closed and retryable. Rejected calls persist nothing, consume no task/evidence IDs, and never fall back to keyword regexes.
-
 
 ## Completion Gates
 
