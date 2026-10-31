@@ -2,6 +2,7 @@ import { registerTaskCommands } from "./src/commands.ts";
 import type { TaskEvent } from "./src/model.ts";
 import type { ExtensionAPI, ExtensionContext } from "./src/pi-types.ts";
 import { buildTaskResume } from "./src/render.ts";
+import { createSemanticCapabilityMonitor } from "./src/semantic-capability.ts";
 import {
 	TASK_STATE_EVENT,
 	TASK_WIDGET_ID,
@@ -21,8 +22,9 @@ export {
 
 export default function (pi: ExtensionAPI) {
 	const store = createTaskRuntimeStore();
+	const semanticMonitor = createSemanticCapabilityMonitor();
 
-	const replay = (
+	const replay = async (
 		ctx: ExtensionContext,
 		reason: Extract<TaskStateEventReason, "session_start" | "session_tree">,
 	) => {
@@ -35,6 +37,7 @@ export default function (pi: ExtensionAPI) {
 				"warning",
 			);
 		}
+		await semanticMonitor.refresh(ctx);
 	};
 
 	pi.on("session_start", async (_event, ctx) => replay(ctx, "session_start"));
@@ -62,5 +65,5 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	registerTaskTools(pi, store);
-	registerTaskCommands(pi, store);
+	registerTaskCommands(pi, store, semanticMonitor);
 }

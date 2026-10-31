@@ -130,6 +130,19 @@ the same data-handling policy as the active OMP conversation. If all native
 boundaries are unavailable or return invalid output, the mutation fails closed
 with a retry instead of reverting to regex heuristics.
 
+On `session_start` and `session_tree`, pi-tasks performs a static capability
+preflight. It inspects Pi classifier metadata and the presence of Pi chat or OMP
+ephemeral APIs without sending a model request. Healthy sessions stay silent. If
+no native assessor is available, a deduplicated warning and
+`pi-tasks-semantic` status direct the user to `/tasks doctor` before a protected
+mutation can fail.
+
+`/tasks doctor` displays the three-strategy capability matrix without inference.
+`/tasks doctor live` is an explicit opt-in synthetic assessment that reports the
+actual strategy, provider, model, latency, and token usage when the host returns
+it. The probe does not read or mutate task state. Under Oh My Pi, the host may
+still include the current conversation snapshot under its side-turn contract.
+
 ## Agent Tools
 
 | Tool | Purpose |
@@ -285,15 +298,16 @@ blockers, and evidence references; custom UI extensions should keep them local.
 - Compaction snapshot hook via `session_before_compact`
 - Compact status bar and above-editor widget
 - Oh My Pi-compatible extension manifest, with critical entrypoint guidance preserved in descriptions for hosts that ignore custom `promptSnippet`/`promptGuidelines` fields
+- Inference-free startup semantic capability preflight, deduplicated unavailable warning, and `/tasks doctor` diagnostics
 
 ### Verification
 
 Local verification suite:
 
 - `PI_SDK_ROOT=/path/to/@earendil-works/pi-coding-agent npm run release:check` (typecheck + lint + unit/native tests + build + import smoke + pack + audit)
-- Real Pi 1.3.0 and Oh My Pi 18.14.0 dogfood most recently passed on 2026-10-30.
+- Real Pi 1.4.0 and Oh My Pi 18.14.1 dogfood most recently passed on 2026-10-31.
 
-Dogfood coverage includes: native Pi chat and OMP ephemeral semantic assessment, English and Traditional Chinese plan/evidence judgments, task lifecycle, unsupported evidence rejection, ordered step rejection, recursive decomposition, same-session resume, fork replay, live `/tasks detail`, clean `/quit`, and installed-tarball smoke.
+Dogfood coverage includes: native Pi chat and OMP ephemeral semantic assessment, inference-free healthy startup, static and live `/tasks doctor`, English and Traditional Chinese task creation, task updates, same-session resume, Pi fork replay, `/tasks`, clean `/quit`, and installed-tarball smoke.
 
 ## Documentation
 

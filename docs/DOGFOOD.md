@@ -4,9 +4,9 @@ This document tracks real Pi dogfood evidence. Skipped items are not counted as 
 
 ## Current Status
 
-Date: 2026-10-30
+Date: 2026-10-31
 
-Result: passed through the 0.3.0 native semantic assessment release gate, including real Pi and Oh My Pi model boundaries, deterministic replay, English and Traditional Chinese semantic cases, and prior release scopes.
+Result: passed through the 0.3.1 proactive semantic capability diagnostics release gate, including silent healthy startup, static and live diagnostics, native Pi and Oh My Pi model boundaries, lifecycle persistence, resume, Pi fork replay, and prior release scopes.
 
 Environment:
 
@@ -1178,6 +1178,46 @@ PI_SDK_ROOT=/tmp/pi-tasks-sdk-1.4.0/node_modules/@earendil-works/pi-coding-agent
 Observed result: passed strict typecheck, Biome, 103 unit tests, 7 native Pi SDK 1.4.0 tests, build, source/dist import smoke, `npm pack --dry-run`, clean `pi-tasks-0.3.0.tgz` install/import, and a zero-vulnerability audit. In the clean installed consumer, a vague first smoke step correctly failed closed; the corrected concrete read-and-command step then created `T1` through `node_modules/pi-tasks/dist/index.js` with version 2 native `pi_chat` semantic provenance.
 
 No npm publication was performed; npm publication remains a manual maintainer action.
+
+
+## 0.3.1 Proactive Semantic Capability Diagnostics Dogfood (2026-10-31)
+
+Real Pi 1.4.0 used `openai-codex/gpt-5.6-sol`. Healthy startup showed no
+semantic warning. `/tasks doctor` reported `READY via Pi chat` without a model
+request; classifier discovery correctly reported no classifier model and OMP
+ephemeral correctly reported unavailable. Explicit `/tasks doctor live` passed
+through Pi chat in 3,291 ms, reported 887 tokens, and confirmed unchanged task
+state. `/tasks` rendered the empty branch and `/quit` exited with code 0.
+
+Real Oh My Pi 18.14.1 used
+`google-antigravity/gemini-2.5-flash`. Healthy startup was silent.
+`/tasks doctor` reported `READY via OMP ephemeral`; both Pi strategies correctly
+reported unavailable. Explicit `/tasks doctor live` passed through
+`runEphemeralTurn()` in 3,941 ms and confirmed unchanged task state. `/tasks`
+rendered the empty branch and `/quit` exited with code 0.
+
+Pi lifecycle dogfood created and updated `T1` through registered extension tools,
+persisted version 2 `pi_chat` provenance, restored `T1` through same-session
+`task_resume`, and restored it again through a real Pi fork. OMP lifecycle
+dogfood created and updated `T1` with built-in tools disabled, proving the calls
+used registered extension tools; the custom entry persisted version 2
+`omp_ephemeral` provenance and same-session resume restored the active step.
+
+The final 0.3.1 release check passed strict typecheck, Biome, 112 unit tests,
+7 native Pi SDK 1.4.0 tests, build, source/dist import smoke,
+`npm pack --dry-run`, clean tarball install/import, and zero-vulnerability
+audit. A separate installed-package Pi TUI loaded
+`node_modules/pi-tasks/dist/index.js`; static and live doctor modes passed, with
+the live Pi chat probe reporting unchanged task state, and `/quit` exited 0.
+
+Evidence:
+
+- working root: `/tmp/pi-tasks-031-review`
+- Pi lifecycle transcript: `/tmp/pi-tasks-031-review/pi-sessions/2026-10-31T03-07-12-698Z_lifecycle-pi.jsonl`
+- OMP lifecycle transcript: `/tmp/pi-tasks-031-review/omp-native/2026-10-31T03-08-55-772Z_01a18fee-845c-7127-9a82-c6e27371cf15.jsonl`
+- Pi version/model: `1.4.0`, `openai-codex/gpt-5.6-sol`
+- OMP version/model: `18.14.1`, `google-antigravity/gemini-2.5-flash`
+- installed package root: `/tmp/pi-tasks-031-installed/consumer`
 
 ## Package Gates
 

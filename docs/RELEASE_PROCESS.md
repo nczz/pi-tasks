@@ -26,8 +26,8 @@ Do not publish an npm release until every gate below is recorded with evidence.
 
 - Skipped gates must be listed as skipped with the reason.
 - A gate that used alternate binaries or environment variables must say so.
-- Real Pi dogfood must use Pi custom entries, native semantic model assessment, `/tasks`, session resume, branch/fork behavior when touched, and clean `/quit`.
-- Real Oh My Pi dogfood must exercise `runEphemeralTurn()` semantic assessment, task persistence, `/tasks`, session resume, and clean `/quit`.
+- Real Pi dogfood must use Pi custom entries, native semantic model assessment, silent healthy startup, `/tasks doctor`, `/tasks doctor live`, `/tasks`, session resume, branch/fork behavior when touched, and clean `/quit`.
+- Real Oh My Pi dogfood must exercise `runEphemeralTurn()` semantic assessment, silent healthy startup, `/tasks doctor`, `/tasks doctor live`, task persistence, `/tasks`, session resume, and clean `/quit`.
 - Release dogfood must include ordered-step misuse, unsupported passing evidence, duplicate evidence, decision/blocker rendering, and installed-package smoke.
 - Weak-model release dogfood must use the fixed prompts under [dogfood-prompts](dogfood-prompts/) in English and Traditional Chinese.
 - Do not claim release readiness while either real Pi or Oh My Pi dogfood is skipped.

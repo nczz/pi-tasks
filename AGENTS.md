@@ -49,6 +49,8 @@ This project must align with the commercial-quality bar established by `pi-knowl
 - Treat every task/evidence field as untrusted quoted data. Prompts must judge meaning in the source language, reject keyword/length/punctuation heuristics, distinguish conjunctions from independent operations, and request typed structured output.
 - Validate assessment shape, index coverage, confidence, decision consistency, provenance, and input hashes before persistence. Malformed, unavailable, failed, low-confidence, or aborted assessment must not mutate task state.
 - Propagate the caller's cancellation signal and model usage. Never silently fall back to lexical regex judgment.
+- On `session_start` and `session_tree`, inspect semantic capability without inference after the default task UI and `pi-tasks:state` publication. Healthy sessions remain silent; an unavailable session receives one deduplicated warning plus the `pi-tasks-semantic` status.
+- `/tasks doctor` must remain a static, model-free report. Only explicit `/tasks doctor live` may send one synthetic semantic assessment, and neither mode may read or mutate task state.
 
 ## Implementation Rules
 

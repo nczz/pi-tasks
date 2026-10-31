@@ -305,6 +305,29 @@ transitions, rendering, and completion are deterministic. Inputs are untrusted
 quoted data; outputs must pass strict shape, index, confidence, decision,
 provenance, and hash validation. No provider SDK or lexical fallback is used.
 
+### 5.7.2 Semantic Capability Diagnostics
+
+`session_start` and `session_tree` run a static semantic capability inspection
+after the default widget refresh and `pi-tasks:state` publication. The inspector:
+
+- calls only Pi classifier metadata discovery; it never invokes `classify()`,
+  `streamSimple()`, or `runEphemeralTurn()`;
+- reports `ready` when a native strategy is available, `degraded` when a
+  fallback is available despite a discovery error, and `unavailable` when no
+  strategy is usable;
+- prefers `pi_classifier`, then `pi_chat`, then `omp_ephemeral`, matching the
+  mutation-time assessor;
+- keeps healthy startup silent and clears stale semantic status;
+- sets the separate `pi-tasks-semantic` status and emits one warning per
+  unchanged outage when unavailable.
+
+`/tasks doctor` renders this static matrix without inference. `/tasks doctor
+live` explicitly invokes the production semantic boundary with one fixed,
+synthetic plan payload and reports strategy/provider/model, duration, optional
+usage, or a typed failure. Neither mode reads task branch entries, appends
+events, allocates IDs, or mutates runtime task state. The live OMP host boundary
+may include the current conversation according to OMP's side-turn contract.
+
 ### 5.8 Task
 
 ```ts
@@ -966,11 +989,12 @@ The goal can be marked complete only when:
 
 ## 20. Current Implementation Status
 
-As of 2026-10-30, the repo contains the implemented product for:
+As of 2026-10-31, the repo contains the implemented product for:
 
 - typed version 1/2 model and event contracts in `src/model.ts`,
 - pure, model-free reducer replay and transition validation in `src/reducer.ts`,
 - host-native semantic assessment through Pi classifier/chat APIs and Oh My Pi ephemeral turns,
+- inference-free startup semantic capability diagnostics with deduplicated unavailable UX and explicit static/live `/tasks doctor` modes,
 - persisted model provenance, prompt version, input hashes, confidence, and decisions for plan, decomposition, and passing evidence,
 - ordered plan-step enforcement for `initial_steps`, `task_update`, and completion gating,
 - structured step contracts with expected output, criterion links, evidence requirement, and optional allowed actions,
@@ -987,7 +1011,7 @@ As of 2026-10-30, the repo contains the implemented product for:
 - branch custom-entry replay in `src/store.ts`,
 - tool registration in `src/tools.ts`,
 - token-efficient tool result rendering that returns compact resume guidance by default,
-- `/tasks` command registration in `src/commands.ts`, with compact default output and explicit `/tasks detail` expansion,
+- `/tasks` command registration in `src/commands.ts`, with compact default output, explicit `/tasks detail` expansion, and semantic `doctor` modes,
 - compact status/widget formatting in `src/render.ts` and `src/widget.ts`,
 - startup-light extension registration in `index.ts`,
 - compiled npm runtime in `dist/`,
@@ -1005,21 +1029,21 @@ Verified locally:
 - tarball install and `import("pi-tasks")`,
 - `npm audit --audit-level=low` using an isolated npm cache.
 
-Verified with real Pi 1.3.0 and Oh My Pi 18.14.0 dogfood:
+Verified with real Pi 1.4.0 and Oh My Pi 18.14.1 dogfood:
 
-- Pi chat and OMP ephemeral native semantic assessment with persisted strategy/provider/model provenance,
-- ordinary English `Update` and Traditional Chinese「更新」plan wording accepted according to meaning rather than keyword matching,
-- structurally valid future-expectation evidence rejected before corrected observed evidence was accepted,
-- task creation, ordered step update, evidence attachment, completion, and detailed listing,
-- model-directed decomposition of valid multi-operation work,
-- same-session resume from persisted `pi-tasks:event` custom entries,
-- live `/tasks detail` rendering and clean `/quit`,
-- Pi fork replay of copied custom entries,
-- clean installed-package Pi smoke through `node_modules/pi-tasks/dist/index.js`.
+- healthy startup remained silent in both hosts;
+- static `/tasks doctor` reported Pi chat and OMP ephemeral readiness without inference;
+- live `/tasks doctor live` passed through Pi chat and OMP `runEphemeralTurn()` with native strategy/provider/model provenance and unchanged task state;
+- Pi chat and OMP ephemeral task creation persisted version 2 strategy/provider/model provenance;
+- task updates and `/tasks` rendered in both hosts;
+- same-session resume restored active task custom entries in both hosts;
+- Pi fork replay restored the active task;
+- both interactive TUIs exited cleanly through `/quit`;
+- clean installed-package Pi smoke passed through `node_modules/pi-tasks/dist/index.js`.
 
 Remaining runtime coverage:
 
-- none known for the 0.3.0 release scope.
+- none known for the 0.3.1 release scope.
 
 ## 21. Documentation Completeness Assessment
 

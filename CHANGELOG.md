@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-31
+
+### Added
+- Added inference-free semantic capability checks on session start and branch replay, with a separate status hint and one deduplicated warning when no native assessor is available.
+- Added `/tasks doctor` for a static Pi classifier/chat/OMP capability matrix and explicit `/tasks doctor live` for a synthetic, non-mutating production-boundary probe.
+
+### Changed
+- Healthy sessions remain silent, while unavailable and live-probe failure reports identify affected mutations and actionable Pi or Oh My Pi recovery paths before task work fails.
+
 ## [0.3.0] - 2026-10-30
 
 ### Added

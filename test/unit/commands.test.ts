@@ -111,4 +111,89 @@ describe("/tasks command", () => {
 		expect(notification).toContain("T1 [active]");
 		expect(notification).toContain("T1-AC1");
 	});
+
+	it("shows static semantic capability diagnostics without a model request", async () => {
+		const commands = new Map<string, RegisteredCommand>();
+		const pi: ExtensionAPI = {
+			events: { emit: () => {} },
+			on: () => {},
+			registerTool: () => {},
+			registerCommand: (name, command) => commands.set(name, command),
+			appendEntry: () => {},
+		};
+		const store = createTaskRuntimeStore();
+		let notification = "";
+		let notificationType = "";
+		const ctx: ExtensionContext = {
+			sessionManager: { getBranch: () => [] },
+			ui: {
+				notify: (message, type) => {
+					notification = message;
+					notificationType = type ?? "";
+				},
+				setStatus: () => {},
+				setWidget: () => {},
+			},
+		};
+
+		registerTaskCommands(pi, store);
+		await commands.get("tasks")?.handler("doctor", ctx);
+
+		expect(notification).toContain("pi-tasks semantic doctor");
+		expect(notification).toContain("Overall: UNAVAILABLE");
+		expect(notification).toContain("Live probe: not run.");
+		expect(notificationType).toBe("warning");
+	});
+
+	it("runs a live doctor probe without mutating task state", async () => {
+		const commands = new Map<string, RegisteredCommand>();
+		const pi: ExtensionAPI = {
+			events: { emit: () => {} },
+			on: () => {},
+			registerTool: () => {},
+			registerCommand: (name, command) => commands.set(name, command),
+			appendEntry: () => {},
+		};
+		const store = createTaskRuntimeStore();
+		let notification = "";
+		const ctx: ExtensionContext = {
+			sessionManager: { getBranch: () => [] },
+			ui: {
+				notify: (message) => {
+					notification = message;
+				},
+				setStatus: () => {},
+				setWidget: () => {},
+			},
+			model: { provider: "omp", id: "current" },
+			runEphemeralTurn: async () => ({
+				replyText: JSON.stringify({
+					steps: [
+						{
+							index: 0,
+							specific: { value: true, confidence: 0.96 },
+							actionCount: { value: "one", confidence: 0.95 },
+							outputCount: { value: "one", confidence: 0.95 },
+							verificationCount: {
+								value: "one",
+								confidence: 0.95,
+							},
+							hiddenSubtasks: {
+								value: false,
+								confidence: 0.96,
+							},
+						},
+					],
+				}),
+			}),
+		};
+		const stateBefore = store.getState();
+
+		registerTaskCommands(pi, store);
+		await commands.get("tasks")?.handler("doctor live", ctx);
+
+		expect(notification).toContain("Live probe: PASS via OMP ephemeral");
+		expect(notification).toContain("Task state: unchanged.");
+		expect(store.getState()).toBe(stateBefore);
+	});
 });
